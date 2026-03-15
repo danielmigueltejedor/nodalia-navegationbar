@@ -1293,15 +1293,26 @@ class NodaliaNavigationBarCard extends HTMLElement {
           display: flex;
           align-items: center;
           justify-content: center;
+          line-height: 0;
           position: relative;
           transition: background 160ms ease, transform 160ms ease;
         }
 
         .nav-icon,
         .nav-image {
+          display: block;
+          flex: 0 0 auto;
           width: ${config.styles.button.icon_size};
           height: ${config.styles.button.icon_size};
+        }
+
+        .nav-icon {
+          --mdc-icon-size: ${config.styles.button.icon_size};
+          align-items: center;
+          display: inline-flex;
           font-size: ${config.styles.button.icon_size};
+          justify-content: center;
+          line-height: 1;
         }
 
         .nav-image {
@@ -1428,6 +1439,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
           display: flex;
           height: ${config.styles.popup.item_size};
           justify-content: center;
+          line-height: 0;
           position: relative;
           width: ${config.styles.popup.item_size};
         }
