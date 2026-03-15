@@ -20,23 +20,23 @@ const DEFAULT_CONFIG = {
   styles: {
     bar: {
       background: "var(--ha-card-background)",
-      border: "none",
-      border_radius: "38px",
+      border: "1px solid var(--divider-color)",
+      border_radius: "32px",
       box_shadow: "var(--ha-card-box-shadow)",
-      padding: "18px 20px calc(18px + env(safe-area-inset-bottom, 0px)) 20px",
-      min_height: "88px",
-      gap: "16px",
+      padding: "12px 16px calc(12px + env(safe-area-inset-bottom, 0px)) 16px",
+      min_height: "90px",
+      gap: "20px",
       justify_content: "space-evenly",
       max_width: "100%",
       backdrop_filter: "none",
     },
     button: {
-      size: "62px",
+      size: "60px",
       border_radius: "999px",
       background: "rgba(255, 255, 255, 0.05)",
       color: "var(--primary-text-color)",
       active_color: "var(--primary-text-color)",
-      active_background: "rgba(255, 255, 255, 0.12)",
+      active_background: "rgba(255, 255, 255, 0.08)",
       icon_size: "32px",
       icon_offset_x: "0px",
       icon_offset_y: "-1px",
@@ -1243,6 +1243,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
           align-items: center;
           justify-content: ${config.styles.bar.justify_content};
           gap: ${config.styles.bar.gap};
+          flex-wrap: nowrap;
           width: 100%;
         }
 
@@ -1258,20 +1259,17 @@ class NodaliaNavigationBarCard extends HTMLElement {
           color: var(--route-color);
           cursor: pointer;
           display: inline-flex;
-          flex: 1 1 0;
+          flex: ${config.show_labels ? "1 1 0" : "0 0 auto"};
           flex-direction: column;
           align-items: center;
           justify-content: center;
           gap: ${config.show_labels ? config.styles.button.label_gap : "0px"};
-          min-width: 0;
+          min-width: ${config.show_labels ? "0" : config.styles.button.size};
           min-height: ${config.styles.button.size};
           padding: 0;
           position: relative;
-          transition: background 160ms ease, color 160ms ease, transform 160ms ease;
-        }
-
-        .nav-item:hover {
-          transform: translateY(-1px);
+          width: ${config.show_labels ? "auto" : config.styles.button.size};
+          transition: background 160ms ease, color 160ms ease;
         }
 
         .nav-item:focus-visible {
@@ -1292,12 +1290,13 @@ class NodaliaNavigationBarCard extends HTMLElement {
           width: ${config.styles.button.size};
           height: ${config.styles.button.size};
           border-radius: ${config.styles.button.border_radius};
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
           display: flex;
           align-items: center;
           justify-content: center;
           line-height: 0;
           position: relative;
-          transition: background 160ms ease, transform 160ms ease;
+          transition: background 160ms ease, box-shadow 160ms ease;
         }
 
         .nav-icon,
@@ -1344,10 +1343,6 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .nav-item.active .nav-label {
           color: ${config.styles.button.active_label_color};
-        }
-
-        .nav-item.active .nav-icon-wrap {
-          transform: translateY(-1px);
         }
 
         .nav-popup-indicator {
