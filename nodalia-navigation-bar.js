@@ -38,6 +38,8 @@ const DEFAULT_CONFIG = {
       active_color: "var(--primary-text-color)",
       active_background: "rgba(255, 255, 255, 0.12)",
       icon_size: "32px",
+      icon_offset_x: "0px",
+      icon_offset_y: "-1px",
       label_color: "var(--secondary-text-color)",
       active_label_color: "var(--primary-text-color)",
       label_size: "12px",
@@ -1302,6 +1304,13 @@ class NodaliaNavigationBarCard extends HTMLElement {
         .nav-image {
           display: block;
           flex: 0 0 auto;
+          left: 50%;
+          position: absolute;
+          top: 50%;
+          transform: translate(
+            calc(-50% + ${config.styles.button.icon_offset_x}),
+            calc(-50% + ${config.styles.button.icon_offset_y})
+          );
           width: ${config.styles.button.icon_size};
           height: ${config.styles.button.icon_size};
         }
@@ -1313,6 +1322,8 @@ class NodaliaNavigationBarCard extends HTMLElement {
           font-size: ${config.styles.button.icon_size};
           justify-content: center;
           line-height: 1;
+          margin: 0;
+          padding: 0;
         }
 
         .nav-image {
@@ -2325,6 +2336,14 @@ class NodaliaNavigationBarEditor extends HTMLElement {
             <label>
               <span>Tamano icono</span>
               <input type="text" data-field="styles.button.icon_size" value="${escapeHtml(config.styles.button.icon_size || "")}" />
+            </label>
+            <label>
+              <span>Offset icono X</span>
+              <input type="text" data-field="styles.button.icon_offset_x" value="${escapeHtml(config.styles.button.icon_offset_x || "")}" />
+            </label>
+            <label>
+              <span>Offset icono Y</span>
+              <input type="text" data-field="styles.button.icon_offset_y" value="${escapeHtml(config.styles.button.icon_offset_y || "")}" />
             </label>
             <label>
               <span>Tamano boton</span>
