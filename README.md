@@ -12,7 +12,7 @@ Tarjeta Lovelace ligera para Home Assistant pensada para reemplazar barras de na
 - Media player integrado encima de la barra.
 - Soporte basico para `navigate`, `url`, `call-service`, `toggle` y `more-info`.
 - Badges sencillos por valor fijo o por entidad.
-- Editor visual simple para las opciones mas comunes.
+- Editor visual para general, rutas, popup y media player.
 - Archivo unico `nodalia-navigation-bar.js`, sin build.
 
 ## Instalacion
@@ -231,6 +231,7 @@ routes:
 ```
 
 Cada item del popup admite practicamente los mismos campos que una ruta normal: `icon`, `image`, `label`, `path`, `active_paths`, `users`, `badge` y `tap_action`.
+Tambien puedes crearlos y editarlos desde el editor visual de la tarjeta.
 
 ## Media player integrado
 
@@ -268,6 +269,28 @@ media_player:
 - `show`: `true` o `false` para ese reproductor.
 - `show_states`: lista de estados visibles, por ejemplo `["playing", "paused", "idle"]`.
 - `tap_action`: accion al pulsar la tarjeta del reproductor.
+
+Los reproductores tambien se pueden anadir y editar desde el editor visual.
+
+## Estilo compacto tipo barra clasica
+
+Si quieres acercarte mas al aspecto de tu barra anterior, este bloque suele dar un resultado mejor equilibrado:
+
+```yaml
+styles:
+  bar:
+    border: none
+    border_radius: 38px
+    padding: 18px 20px calc(18px + env(safe-area-inset-bottom, 0px)) 20px
+    min_height: 88px
+    gap: 16px
+  button:
+    size: 62px
+    background: rgba(255, 255, 255, 0.05)
+    active_background: rgba(255, 255, 255, 0.12)
+    active_color: var(--primary-text-color)
+    active_label_color: var(--primary-text-color)
+```
 
 ### Ejemplo completo con popup y media player
 
@@ -358,8 +381,7 @@ routes:
 
 ## Limitaciones actuales
 
-- El editor integrado cubre solo la configuracion mas comun.
-- Los popups y el media player se configuran mejor por YAML que desde el editor.
+- El editor visual cubre ya popup y media player, pero las acciones complejas siguen siendo mas comodas por YAML.
 - Si quieres acciones muy personalizadas, es mejor seguir ampliando el YAML.
 
 ## Archivo de ejemplo

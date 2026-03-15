@@ -20,25 +20,26 @@ const DEFAULT_CONFIG = {
   styles: {
     bar: {
       background: "var(--ha-card-background)",
-      border: "1px solid var(--divider-color)",
-      border_radius: "32px",
+      border: "none",
+      border_radius: "38px",
       box_shadow: "var(--ha-card-box-shadow)",
-      padding: "12px 16px calc(12px + env(safe-area-inset-bottom, 0px)) 16px",
-      min_height: "90px",
-      gap: "20px",
+      padding: "18px 20px calc(18px + env(safe-area-inset-bottom, 0px)) 20px",
+      min_height: "88px",
+      gap: "16px",
       justify_content: "space-evenly",
       max_width: "100%",
       backdrop_filter: "none",
     },
     button: {
-      size: "60px",
+      size: "62px",
       border_radius: "999px",
+      background: "rgba(255, 255, 255, 0.05)",
       color: "var(--primary-text-color)",
-      active_color: "var(--primary-color)",
-      active_background: "rgba(var(--rgb-primary-color), 0.12)",
+      active_color: "var(--primary-text-color)",
+      active_background: "rgba(255, 255, 255, 0.12)",
       icon_size: "32px",
       label_color: "var(--secondary-text-color)",
-      active_label_color: "var(--primary-color)",
+      active_label_color: "var(--primary-text-color)",
       label_size: "12px",
       label_gap: "6px",
     },
@@ -248,6 +249,22 @@ function arrayFromCsv(value) {
 
 function clamp(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), maximum);
+}
+
+function parsePrimitiveValue(value) {
+  if (value === "true") {
+    return true;
+  }
+
+  if (value === "false") {
+    return false;
+  }
+
+  if (typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value)) {
+    return Number(value);
+  }
+
+  return value;
 }
 
 function normalizePath(value) {
@@ -1115,6 +1132,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
               const badge = this._getBadge(route);
               const label = route.label || "";
               const routeStyle = [
+                route.background ? `--route-background:${route.background};` : "",
                 route.color ? `--route-color:${route.color};` : "",
                 route.active_color ? `--route-active-color:${route.active_color};` : "",
                 route.active_background ? `--route-active-background:${route.active_background};` : "",
@@ -1227,6 +1245,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
         }
 
         .nav-item {
+          --route-background: ${config.styles.button.background};
           --route-color: ${config.styles.button.color};
           --route-active-color: ${config.styles.button.active_color};
           --route-active-background: ${config.styles.button.active_background};
@@ -1267,6 +1286,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
         }
 
         .nav-icon-wrap {
+          background: var(--route-background);
           width: ${config.styles.button.size};
           height: ${config.styles.button.size};
           border-radius: ${config.styles.button.border_radius};
@@ -1274,7 +1294,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
           align-items: center;
           justify-content: center;
           position: relative;
-          transition: background 160ms ease;
+          transition: background 160ms ease, transform 160ms ease;
         }
 
         .nav-icon,
@@ -1302,6 +1322,10 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .nav-item.active .nav-label {
           color: ${config.styles.button.active_label_color};
+        }
+
+        .nav-item.active .nav-icon-wrap {
+          transform: translateY(-1px);
         }
 
         .nav-popup-indicator {
@@ -1619,25 +1643,84 @@ class NodaliaNavigationBarEditor extends HTMLElement {
     this.shadowRoot.addEventListener("click", this._onShadowClick);
   }
 
+  _prepareEditorConfig(config) {
+    if (!Array.isArray(config.routes)) {
+      config.routes = [];
+    }
+
+    if (!isObject(config.media_player)) {
+      config.media_player = {};
+    }
+
+    if (!Array.isArray(config.media_player.players)) {
+      config.media_player.players = [];
+    }
+
+    return config;
+  }
+
   setConfig(config) {
     const nextConfig = deepClone(config || STUB_CONFIG);
     if (!Array.isArray(nextConfig.routes) && Array.isArray(nextConfig.items)) {
       nextConfig.routes = nextConfig.items;
       delete nextConfig.items;
     }
-    if (!Array.isArray(nextConfig.routes)) {
-      nextConfig.routes = [];
-    }
-    this._config = nextConfig;
+    this._config = this._prepareEditorConfig(nextConfig);
     this._render();
   }
 
   _emitConfig(nextConfig) {
-    this._config = compactConfig(nextConfig);
+    this._config = compactConfig(this._prepareEditorConfig(nextConfig));
     this._render();
     fireEvent(this, "config-changed", {
       config: this._config,
     });
+  }
+
+  _applyFieldValue(target, key, field) {
+    if (!target || !key) {
+      return;
+    }
+
+    if (field.type === "checkbox" && field.dataset.checkedValue !== undefined) {
+      if (field.checked) {
+        target[key] = parsePrimitiveValue(field.dataset.checkedValue);
+      } else if (field.dataset.uncheckedDelete === "true") {
+        delete target[key];
+      } else if (field.dataset.uncheckedValue !== undefined) {
+        target[key] = parsePrimitiveValue(field.dataset.uncheckedValue);
+      } else {
+        target[key] = false;
+      }
+      return;
+    }
+
+    if (field.dataset.csv === "true") {
+      const values = arrayFromCsv(field.value);
+      if (values.length > 0) {
+        target[key] = values;
+      } else {
+        delete target[key];
+      }
+      return;
+    }
+
+    if (field.type === "checkbox") {
+      target[key] = field.checked;
+      return;
+    }
+
+    if (field.value === "" && field.dataset.optional === "true") {
+      delete target[key];
+      return;
+    }
+
+    if (field.type === "number") {
+      target[key] = Number(field.value);
+      return;
+    }
+
+    target[key] = field.value;
   }
 
   _onShadowInput(event) {
@@ -1661,38 +1744,68 @@ class NodaliaNavigationBarEditor extends HTMLElement {
       return;
     }
 
+    const playerField = event
+      .composedPath()
+      .find(node => node instanceof HTMLElement && node.dataset?.playerField);
+
+    if (playerField) {
+      const nextConfig = deepClone(this._config);
+      this._prepareEditorConfig(nextConfig);
+      const playerIndex = Number(playerField.dataset.playerIndex);
+      const player = nextConfig.media_player.players[playerIndex];
+
+      if (!player) {
+        return;
+      }
+
+      this._applyFieldValue(player, playerField.dataset.playerField, playerField);
+      this._emitConfig(nextConfig);
+      return;
+    }
+
     const routeField = event
       .composedPath()
       .find(node => node instanceof HTMLElement && node.dataset?.routeField);
 
-    if (!routeField) {
+    if (routeField) {
+      const routeIndex = Number(routeField.dataset.routeIndex);
+      const nextConfig = deepClone(this._config);
+      this._prepareEditorConfig(nextConfig);
+      const route = nextConfig.routes[routeIndex];
+
+      if (!route) {
+        return;
+      }
+
+      this._applyFieldValue(route, routeField.dataset.routeField, routeField);
+      this._emitConfig(nextConfig);
       return;
     }
 
-    const routeIndex = Number(routeField.dataset.routeIndex);
-    const routeKey = routeField.dataset.routeField;
+    const popupField = event
+      .composedPath()
+      .find(node => node instanceof HTMLElement && node.dataset?.popupField);
+
+    if (!popupField) {
+      return;
+    }
+
     const nextConfig = deepClone(this._config);
+    this._prepareEditorConfig(nextConfig);
+    const routeIndex = Number(popupField.dataset.routeIndex);
+    const popupIndex = Number(popupField.dataset.popupIndex);
     const route = nextConfig.routes[routeIndex];
 
-    if (!route) {
+    if (!route || !Array.isArray(route.popup)) {
       return;
     }
 
-    if (routeField.dataset.csv === "true") {
-      const values = arrayFromCsv(routeField.value);
-      if (values.length > 0) {
-        route[routeKey] = values;
-      } else {
-        delete route[routeKey];
-      }
-    } else if (routeField.type === "checkbox") {
-      route[routeKey] = routeField.checked;
-    } else if (routeField.value === "" && routeField.dataset.optional === "true") {
-      delete route[routeKey];
-    } else {
-      route[routeKey] = routeField.value;
+    const popupItem = route.popup[popupIndex];
+    if (!popupItem) {
+      return;
     }
 
+    this._applyFieldValue(popupItem, popupField.dataset.popupField, popupField);
     this._emitConfig(nextConfig);
   }
 
@@ -1706,9 +1819,7 @@ class NodaliaNavigationBarEditor extends HTMLElement {
     }
 
     const nextConfig = deepClone(this._config);
-    if (!Array.isArray(nextConfig.routes)) {
-      nextConfig.routes = [];
-    }
+    this._prepareEditorConfig(nextConfig);
 
     if (actionButton.dataset.editorAction === "add-route") {
       nextConfig.routes.push({
@@ -1724,10 +1835,256 @@ class NodaliaNavigationBarEditor extends HTMLElement {
       const index = Number(actionButton.dataset.routeIndex);
       nextConfig.routes.splice(index, 1);
       this._emitConfig(nextConfig);
+      return;
+    }
+
+    if (actionButton.dataset.editorAction === "add-popup-item") {
+      const routeIndex = Number(actionButton.dataset.routeIndex);
+      const route = nextConfig.routes[routeIndex];
+
+      if (!route) {
+        return;
+      }
+
+      if (!Array.isArray(route.popup)) {
+        route.popup = [];
+      }
+
+      route.popup.push({
+        icon: "mdi:dots-circle",
+        label: `Popup ${route.popup.length + 1}`,
+        path: "/lovelace/nueva-ruta",
+      });
+      this._emitConfig(nextConfig);
+      return;
+    }
+
+    if (actionButton.dataset.editorAction === "remove-popup-item") {
+      const routeIndex = Number(actionButton.dataset.routeIndex);
+      const popupIndex = Number(actionButton.dataset.popupIndex);
+      const route = nextConfig.routes[routeIndex];
+
+      if (!route || !Array.isArray(route.popup)) {
+        return;
+      }
+
+      route.popup.splice(popupIndex, 1);
+      if (route.popup.length === 0) {
+        delete route.popup;
+      }
+      this._emitConfig(nextConfig);
+      return;
+    }
+
+    if (actionButton.dataset.editorAction === "add-player") {
+      nextConfig.media_player.players.push({
+        entity: "media_player.nuevo",
+      });
+      this._emitConfig(nextConfig);
+      return;
+    }
+
+    if (actionButton.dataset.editorAction === "remove-player") {
+      const playerIndex = Number(actionButton.dataset.playerIndex);
+      nextConfig.media_player.players.splice(playerIndex, 1);
+      this._emitConfig(nextConfig);
     }
   }
 
+  _renderPopupItem(routeIndex, popupItem, popupIndex) {
+    return `
+      <div class="sub-card">
+        <div class="route-head route-head--sub">
+          <strong>Popup ${popupIndex + 1}</strong>
+          <button
+            type="button"
+            class="danger"
+            data-editor-action="remove-popup-item"
+            data-route-index="${routeIndex}"
+            data-popup-index="${popupIndex}"
+          >
+            Eliminar
+          </button>
+        </div>
+        <div class="grid">
+          <label>
+            <span>Etiqueta</span>
+            <input
+              type="text"
+              data-route-index="${routeIndex}"
+              data-popup-index="${popupIndex}"
+              data-popup-field="label"
+              value="${escapeHtml(popupItem.label || "")}"
+            />
+          </label>
+          <label>
+            <span>Icono</span>
+            <input
+              type="text"
+              data-route-index="${routeIndex}"
+              data-popup-index="${popupIndex}"
+              data-popup-field="icon"
+              value="${escapeHtml(popupItem.icon || "")}"
+            />
+          </label>
+          <label>
+            <span>Path</span>
+            <input
+              type="text"
+              data-route-index="${routeIndex}"
+              data-popup-index="${popupIndex}"
+              data-popup-field="path"
+              value="${escapeHtml(popupItem.path || "")}"
+            />
+          </label>
+          <label>
+            <span>Descripcion</span>
+            <input
+              type="text"
+              data-route-index="${routeIndex}"
+              data-popup-index="${popupIndex}"
+              data-popup-field="description"
+              data-optional="true"
+              value="${escapeHtml(popupItem.description || "")}"
+            />
+          </label>
+          <label>
+            <span>Usuarios</span>
+            <input
+              type="text"
+              data-route-index="${routeIndex}"
+              data-popup-index="${popupIndex}"
+              data-popup-field="users"
+              data-csv="true"
+              data-optional="true"
+              value="${escapeHtml((popupItem.users || []).join(", "))}"
+              placeholder="id1, id2"
+            />
+          </label>
+          <label>
+            <span>Paths activos</span>
+            <input
+              type="text"
+              data-route-index="${routeIndex}"
+              data-popup-index="${popupIndex}"
+              data-popup-field="active_paths"
+              data-csv="true"
+              data-optional="true"
+              value="${escapeHtml((popupItem.active_paths || []).join(", "))}"
+              placeholder="/lovelace/seguridad/camaras"
+            />
+          </label>
+          <label class="checkbox">
+            <input
+              type="checkbox"
+              data-route-index="${routeIndex}"
+              data-popup-index="${popupIndex}"
+              data-popup-field="match"
+              data-checked-value="prefix"
+              data-unchecked-delete="true"
+              ${popupItem.match === "prefix" ? "checked" : ""}
+            />
+            <span>Activa por prefijo</span>
+          </label>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderMediaPlayerPlayer(player, index) {
+    return `
+      <div class="route-card">
+        <div class="route-head">
+          <strong>Player ${index + 1}</strong>
+          <button type="button" class="danger" data-editor-action="remove-player" data-player-index="${index}">
+            Eliminar
+          </button>
+        </div>
+        <div class="grid">
+          <label>
+            <span>Entidad</span>
+            <input
+              type="text"
+              data-player-index="${index}"
+              data-player-field="entity"
+              value="${escapeHtml(player.entity || "")}"
+              placeholder="media_player.spotify"
+            />
+          </label>
+          <label>
+            <span>Titulo</span>
+            <input
+              type="text"
+              data-player-index="${index}"
+              data-player-field="title"
+              data-optional="true"
+              value="${escapeHtml(player.title || "")}"
+            />
+          </label>
+          <label>
+            <span>Subtitulo</span>
+            <input
+              type="text"
+              data-player-index="${index}"
+              data-player-field="subtitle"
+              data-optional="true"
+              value="${escapeHtml(player.subtitle || "")}"
+            />
+          </label>
+          <label>
+            <span>Icono fallback</span>
+            <input
+              type="text"
+              data-player-index="${index}"
+              data-player-field="icon"
+              data-optional="true"
+              value="${escapeHtml(player.icon || "")}"
+              placeholder="mdi:speaker"
+            />
+          </label>
+          <label>
+            <span>Imagen fija</span>
+            <input
+              type="text"
+              data-player-index="${index}"
+              data-player-field="image"
+              data-optional="true"
+              value="${escapeHtml(player.image || "")}"
+            />
+          </label>
+          <label>
+            <span>Estados visibles</span>
+            <input
+              type="text"
+              data-player-index="${index}"
+              data-player-field="show_states"
+              data-csv="true"
+              data-optional="true"
+              value="${escapeHtml((player.show_states || []).join(", "))}"
+              placeholder="playing, paused"
+            />
+          </label>
+          <label class="checkbox">
+            <input
+              type="checkbox"
+              data-player-index="${index}"
+              data-player-field="show"
+              data-checked-value="true"
+              data-unchecked-delete="true"
+              ${player.show === true ? "checked" : ""}
+            />
+            <span>Mostrar siempre</span>
+          </label>
+        </div>
+      </div>
+    `;
+  }
+
   _renderRoute(route, index) {
+    const popupMarkup = Array.isArray(route.popup) && route.popup.length > 0
+      ? route.popup.map((popupItem, popupIndex) => this._renderPopupItem(index, popupItem, popupIndex)).join("")
+      : '<p class="hint">Esta ruta no tiene popup todavia.</p>';
+
     return `
       <div class="route-card">
         <div class="route-head">
@@ -1774,9 +2131,25 @@ class NodaliaNavigationBarEditor extends HTMLElement {
             />
           </label>
           <label class="checkbox">
-            <input type="checkbox" data-route-index="${index}" data-match-toggle="true" ${route.match === "prefix" ? "checked" : ""} />
+            <input
+              type="checkbox"
+              data-route-index="${index}"
+              data-route-field="match"
+              data-checked-value="prefix"
+              data-unchecked-delete="true"
+              ${route.match === "prefix" ? "checked" : ""}
+            />
             <span>Marcar activa por prefijo</span>
           </label>
+        </div>
+        <div class="subsection">
+          <div class="route-head route-head--subsection">
+            <strong>Popup</strong>
+            <button type="button" data-editor-action="add-popup-item" data-route-index="${index}">
+              Anadir popup
+            </button>
+          </div>
+          ${popupMarkup}
         </div>
       </div>
     `;
@@ -1785,6 +2158,9 @@ class NodaliaNavigationBarEditor extends HTMLElement {
   _render() {
     const config = normalizeConfig(this._config || STUB_CONFIG);
     const routesMarkup = config.routes.map((route, index) => this._renderRoute(route, index)).join("");
+    const playersMarkup = (config.media_player?.players || [])
+      .map((player, index) => this._renderMediaPlayerPlayer(player, index))
+      .join("");
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -1803,7 +2179,8 @@ class NodaliaNavigationBarEditor extends HTMLElement {
         }
 
         .panel,
-        .route-card {
+        .route-card,
+        .sub-card {
           background: var(--card-background-color, var(--ha-card-background, #fff));
           border: 1px solid var(--divider-color);
           border-radius: 16px;
@@ -1819,10 +2196,26 @@ class NodaliaNavigationBarEditor extends HTMLElement {
           margin-bottom: 12px;
         }
 
+        .route-head--subsection,
+        .route-head--sub {
+          margin-bottom: 10px;
+        }
+
         .grid {
           display: grid;
           gap: 12px;
           grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        }
+
+        .subsection {
+          border-top: 1px solid var(--divider-color);
+          margin-top: 16px;
+          padding-top: 16px;
+        }
+
+        .sub-card {
+          background: rgba(127, 127, 127, 0.08);
+          margin-top: 10px;
         }
 
         label {
@@ -1898,16 +2291,32 @@ class NodaliaNavigationBarEditor extends HTMLElement {
               <input type="text" data-field="styles.bar.background" value="${escapeHtml(config.styles.bar.background || "")}" />
             </label>
             <label>
+              <span>Fondo botones</span>
+              <input type="text" data-field="styles.button.background" value="${escapeHtml(config.styles.button.background || "")}" />
+            </label>
+            <label>
               <span>Color activo</span>
               <input type="text" data-field="styles.button.active_color" value="${escapeHtml(config.styles.button.active_color || "")}" />
+            </label>
+            <label>
+              <span>Fondo activo</span>
+              <input type="text" data-field="styles.button.active_background" value="${escapeHtml(config.styles.button.active_background || "")}" />
             </label>
             <label>
               <span>Radio barra</span>
               <input type="text" data-field="styles.bar.border_radius" value="${escapeHtml(config.styles.bar.border_radius || "")}" />
             </label>
             <label>
+              <span>Padding barra</span>
+              <input type="text" data-field="styles.bar.padding" value="${escapeHtml(config.styles.bar.padding || "")}" />
+            </label>
+            <label>
               <span>Tamano icono</span>
               <input type="text" data-field="styles.button.icon_size" value="${escapeHtml(config.styles.button.icon_size || "")}" />
+            </label>
+            <label>
+              <span>Tamano boton</span>
+              <input type="text" data-field="styles.button.size" value="${escapeHtml(config.styles.button.size || "")}" />
             </label>
             <label class="checkbox">
               <input type="checkbox" data-field="show_labels" ${config.show_labels ? "checked" : ""} />
@@ -1927,8 +2336,35 @@ class NodaliaNavigationBarEditor extends HTMLElement {
             </label>
           </div>
           <p class="hint">
-            Para popups, media player, badges o estilos por ruta, puedes completar el YAML manualmente.
+            Aqui ya puedes editar popup y media player. Para acciones muy avanzadas, sigue siendo mejor completar el YAML.
           </p>
+        </div>
+        <div class="panel">
+          <div class="panel-title">
+            <strong>Media Player</strong>
+            <button type="button" data-editor-action="add-player">Anadir player</button>
+          </div>
+          <div class="grid">
+            <label class="checkbox">
+              <input type="checkbox" data-field="media_player.show_desktop" ${config.media_player.show_desktop ? "checked" : ""} />
+              <span>Mostrar tambien en escritorio</span>
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" data-field="media_player.album_cover_background" ${config.media_player.album_cover_background ? "checked" : ""} />
+              <span>Usar caratula de fondo</span>
+            </label>
+            <label>
+              <span>Altura reservada</span>
+              <input type="text" data-field="media_player.reserve_height" value="${escapeHtml(config.media_player.reserve_height || "")}" />
+            </label>
+            <label>
+              <span>Radio player</span>
+              <input type="text" data-field="styles.media_player.border_radius" value="${escapeHtml(config.styles.media_player.border_radius || "")}" />
+            </label>
+          </div>
+          <div class="subsection">
+            ${playersMarkup || '<p class="hint">No hay reproductores configurados.</p>'}
+          </div>
         </div>
         <div class="panel">
           <div class="panel-title">
@@ -1939,27 +2375,6 @@ class NodaliaNavigationBarEditor extends HTMLElement {
         </div>
       </div>
     `;
-
-    const prefixCheckboxes = this.shadowRoot.querySelectorAll("input[data-match-toggle]");
-    prefixCheckboxes.forEach(checkbox => {
-      checkbox.addEventListener("change", inputEvent => {
-        const nextConfig = deepClone(this._config);
-        const routeIndex = Number(inputEvent.currentTarget.dataset.routeIndex);
-        const route = nextConfig.routes[routeIndex];
-
-        if (!route) {
-          return;
-        }
-
-        if (inputEvent.currentTarget.checked) {
-          route.match = "prefix";
-        } else {
-          delete route.match;
-        }
-
-        this._emitConfig(nextConfig);
-      });
-    });
   }
 }
 
