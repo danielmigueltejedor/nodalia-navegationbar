@@ -10,6 +10,7 @@ const DEFAULT_CONFIG = {
     reserve_space: true,
     reserve_height: "calc(90px + env(safe-area-inset-bottom, 0px))",
     position: "bottom",
+    stack_gap: "12px",
     show_desktop: false,
     mobile_breakpoint: 1279,
     z_index: 2,
@@ -47,6 +48,40 @@ const DEFAULT_CONFIG = {
       min_size: "18px",
       font_size: "11px",
     },
+    popup: {
+      background: "var(--ha-card-background)",
+      border: "1px solid var(--divider-color)",
+      border_radius: "24px",
+      box_shadow: "0 18px 40px rgba(0, 0, 0, 0.22)",
+      padding: "12px",
+      min_width: "220px",
+      item_gap: "12px",
+      item_size: "52px",
+      backdrop: "rgba(0, 0, 0, 0.18)",
+    },
+    media_player: {
+      background: "var(--ha-card-background)",
+      border: "1px solid var(--divider-color)",
+      border_radius: "28px",
+      box_shadow: "var(--ha-card-box-shadow)",
+      padding: "14px",
+      min_height: "104px",
+      artwork_size: "64px",
+      control_size: "40px",
+      title_size: "14px",
+      subtitle_size: "12px",
+      progress_color: "var(--primary-color)",
+      progress_background: "rgba(var(--rgb-primary-color), 0.14)",
+      overlay_color: "rgba(0, 0, 0, 0.32)",
+      dot_size: "8px",
+    },
+  },
+  media_player: {
+    show: undefined,
+    show_desktop: false,
+    album_cover_background: true,
+    reserve_height: "116px",
+    players: [],
   },
   routes: [],
 };
@@ -211,6 +246,10 @@ function arrayFromCsv(value) {
     .filter(Boolean);
 }
 
+function clamp(value, minimum, maximum) {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
 function normalizePath(value) {
   if (!value || typeof value !== "string") {
     return null;
@@ -270,8 +309,22 @@ class NodaliaNavigationBarCard extends HTMLElement {
     this._config = null;
     this._hass = null;
     this._renderedRoutes = [];
-    this._onResize = () => this._render();
-    this._onLocationChange = () => this._render();
+    this._popupState = null;
+    this._activeMediaPlayerIndex = 0;
+    this._onResize = () => {
+      this._closePopup(false);
+      this._render();
+    };
+    this._onLocationChange = () => {
+      this._closePopup(false);
+      this._render();
+    };
+    this._onWindowKeyDown = event => {
+      if (event.key === "Escape" && this._popupState) {
+        event.preventDefault();
+        this._closePopup();
+      }
+    };
     this._onShadowClick = this._onShadowClick.bind(this);
     this.shadowRoot.addEventListener("click", this._onShadowClick);
   }
@@ -280,6 +333,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
     window.addEventListener("resize", this._onResize);
     window.addEventListener("popstate", this._onLocationChange);
     window.addEventListener("location-changed", this._onLocationChange);
+    window.addEventListener("keydown", this._onWindowKeyDown);
     this._render();
   }
 
@@ -287,6 +341,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
     window.removeEventListener("resize", this._onResize);
     window.removeEventListener("popstate", this._onLocationChange);
     window.removeEventListener("location-changed", this._onLocationChange);
+    window.removeEventListener("keydown", this._onWindowKeyDown);
   }
 
   setConfig(config) {
@@ -304,6 +359,86 @@ class NodaliaNavigationBarCard extends HTMLElement {
   }
 
   _onShadowClick(event) {
+    const popupCloseTrigger = event
+      .composedPath()
+      .find(node => node instanceof HTMLElement && node.dataset?.popupClose === "true");
+
+    if (popupCloseTrigger) {
+      event.preventDefault();
+      event.stopPropagation();
+      this._closePopup();
+      return;
+    }
+
+    const mediaControlButton = event
+      .composedPath()
+      .find(node => node instanceof HTMLElement && node.dataset?.mediaControl);
+
+    if (mediaControlButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      this._handleMediaControl(
+        mediaControlButton.dataset.mediaControl,
+        mediaControlButton.dataset.entity,
+      );
+      return;
+    }
+
+    const mediaDotButton = event
+      .composedPath()
+      .find(node => node instanceof HTMLElement && node.dataset?.mediaIndex !== undefined);
+
+    if (mediaDotButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      this._activeMediaPlayerIndex = Number(mediaDotButton.dataset.mediaIndex);
+      this._render();
+      return;
+    }
+
+    const mediaCard = event
+      .composedPath()
+      .find(node => node instanceof HTMLElement && node.dataset?.mediaCardIndex !== undefined);
+
+    if (mediaCard) {
+      const visiblePlayers = this._getVisibleMediaPlayers();
+      const player = visiblePlayers[Number(mediaCard.dataset.mediaCardIndex)];
+
+      if (player) {
+        event.preventDefault();
+        event.stopPropagation();
+        this._runAction(player, {
+          closePopup: false,
+          defaultAction: {
+            action: "more-info",
+            entity: player.entity,
+          },
+        });
+      }
+      return;
+    }
+
+    const popupButton = event
+      .composedPath()
+      .find(node => node instanceof HTMLElement && node.dataset?.popupItemIndex !== undefined);
+
+    if (popupButton) {
+      const routeIndex = Number(popupButton.dataset.popupRouteIndex);
+      const popupItemIndex = Number(popupButton.dataset.popupItemIndex);
+      const route = this._renderedRoutes[routeIndex];
+      const popupItems = this._getPopupItems(route);
+      const popupItem = popupItems[popupItemIndex];
+
+      if (popupItem) {
+        event.preventDefault();
+        event.stopPropagation();
+        this._runAction(popupItem, {
+          closePopup: true,
+        });
+      }
+      return;
+    }
+
     const routeButton = event
       .composedPath()
       .find(node => node instanceof HTMLElement && node.dataset?.routeIndex !== undefined);
@@ -321,7 +456,9 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
     event.preventDefault();
     event.stopPropagation();
-    this._runAction(route);
+    this._runAction(route, {
+      anchorElement: routeButton,
+    });
   }
 
   _isInEditMode() {
@@ -350,28 +487,37 @@ class NodaliaNavigationBarCard extends HTMLElement {
     return window.innerWidth > Number(config.layout.mobile_breakpoint || 1279);
   }
 
+  _isItemVisible(item) {
+    if (!item || item.hidden === true || item.show === false) {
+      return false;
+    }
+
+    if (this._isInEditMode()) {
+      return true;
+    }
+
+    const currentUserId = this._hass?.user?.id;
+    if (Array.isArray(item.users) && item.users.length > 0) {
+      return item.users.includes(currentUserId);
+    }
+
+    return true;
+  }
+
   _getVisibleRoutes() {
     if (!this._config) {
       return [];
     }
 
-    if (this._isInEditMode()) {
-      return this._config.routes.filter(Boolean);
+    return this._config.routes.filter(route => this._isItemVisible(route));
+  }
+
+  _getPopupItems(route) {
+    if (!route || !Array.isArray(route.popup)) {
+      return [];
     }
 
-    const currentUserId = this._hass?.user?.id;
-
-    return this._config.routes.filter(route => {
-      if (!route || route.hidden === true || route.show === false) {
-        return false;
-      }
-
-      if (Array.isArray(route.users) && route.users.length > 0) {
-        return route.users.includes(currentUserId);
-      }
-
-      return true;
-    });
+    return route.popup.filter(item => this._isItemVisible(item));
   }
 
   _getRoutePath(route) {
@@ -386,19 +532,23 @@ class NodaliaNavigationBarCard extends HTMLElement {
     return null;
   }
 
-  _isRouteActive(route, currentPath) {
-    if (route.selected === true) {
+  _isNavItemActive(item, currentPath) {
+    if (!item) {
+      return false;
+    }
+
+    if (item.selected === true) {
       return true;
     }
 
     const candidates = [];
-    const mainPath = normalizePath(this._getRoutePath(route));
+    const mainPath = normalizePath(this._getRoutePath(item));
     if (mainPath) {
       candidates.push(mainPath);
     }
 
-    if (Array.isArray(route.active_paths)) {
-      route.active_paths.forEach(path => {
+    if (Array.isArray(item.active_paths)) {
+      item.active_paths.forEach(path => {
         const normalized = normalizePath(path);
         if (normalized) {
           candidates.push(normalized);
@@ -406,7 +556,15 @@ class NodaliaNavigationBarCard extends HTMLElement {
       });
     }
 
-    return candidates.some(path => matchPath(currentPath, path, route.match || "exact"));
+    return candidates.some(path => matchPath(currentPath, path, item.match || "exact"));
+  }
+
+  _isRouteActive(route, currentPath) {
+    if (this._isNavItemActive(route, currentPath)) {
+      return true;
+    }
+
+    return this._getPopupItems(route).some(item => this._isNavItemActive(item, currentPath));
   }
 
   _getBadge(route) {
@@ -473,9 +631,19 @@ class NodaliaNavigationBarCard extends HTMLElement {
     return `<ha-icon class="nav-icon" icon="${escapeHtml(icon)}"></ha-icon>`;
   }
 
-  _getRouteAction(route) {
+  _getRouteAction(route, defaultAction = null) {
+    if (!route) {
+      return defaultAction;
+    }
+
     if (route.tap_action) {
       return route.tap_action;
+    }
+
+    if (Array.isArray(route.popup) && route.popup.length > 0) {
+      return {
+        action: "open-popup",
+      };
     }
 
     if (route.path) {
@@ -485,7 +653,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
       };
     }
 
-    return null;
+    return defaultAction;
   }
 
   _navigate(path) {
@@ -510,8 +678,166 @@ class NodaliaNavigationBarCard extends HTMLElement {
     this._hass.callService(domain, service, action.service_data || {}, action.target);
   }
 
-  _runAction(route) {
-    const action = this._getRouteAction(route);
+  _closePopup(shouldRender = true) {
+    if (!this._popupState) {
+      return;
+    }
+
+    this._popupState = null;
+    if (shouldRender) {
+      this._render();
+    }
+  }
+
+  _openPopup(route, anchorElement) {
+    const items = this._getPopupItems(route);
+    if (!items.length || !anchorElement) {
+      return;
+    }
+
+    const anchorRect = anchorElement.getBoundingClientRect();
+    const popupWidth = Number.parseFloat(this._config?.styles?.popup?.min_width || "220") || 220;
+    const estimatedHeight = Math.min(window.innerHeight - 48, items.length * 68 + 24);
+    const preferredGap = 12;
+    let direction = this._config.layout.position === "top" ? "down" : "up";
+    let left = anchorRect.left + anchorRect.width / 2 - popupWidth / 2;
+
+    left = clamp(left, 12, window.innerWidth - popupWidth - 12);
+
+    let top = direction === "up"
+      ? anchorRect.top - estimatedHeight - preferredGap
+      : anchorRect.bottom + preferredGap;
+
+    if (direction === "up" && top < 12) {
+      direction = "down";
+      top = anchorRect.bottom + preferredGap;
+    }
+
+    if (direction === "down" && top + estimatedHeight > window.innerHeight - 12) {
+      direction = "up";
+      top = anchorRect.top - estimatedHeight - preferredGap;
+    }
+
+    top = clamp(top, 12, Math.max(12, window.innerHeight - estimatedHeight - 12));
+
+    const routeIndex = this._renderedRoutes.indexOf(route);
+    if (routeIndex < 0) {
+      return;
+    }
+
+    this._popupState = {
+      direction,
+      left: `${left}px`,
+      top: `${top}px`,
+      route,
+      routeIndex,
+    };
+    this._render();
+  }
+
+  _getReservedHeight(showMediaPlayer) {
+    const baseHeight = this._config.layout.reserve_height;
+    if (!showMediaPlayer) {
+      return baseHeight;
+    }
+
+    const mediaHeight =
+      this._config.media_player.reserve_height ||
+      this._config.styles.media_player.min_height;
+
+    return `calc(${baseHeight} + ${this._config.layout.stack_gap} + ${mediaHeight})`;
+  }
+
+  _shouldShowMediaPlayerOnCurrentScreen() {
+    if (this._isInEditMode()) {
+      return true;
+    }
+
+    const isDesktop = window.innerWidth > Number(this._config.layout.mobile_breakpoint || 1279);
+    return !isDesktop || this._config.media_player.show_desktop;
+  }
+
+  _getVisibleMediaPlayers() {
+    if (!this._config?.media_player || !Array.isArray(this._config.media_player.players)) {
+      return [];
+    }
+
+    if (this._config.media_player.show === false) {
+      return [];
+    }
+
+    if (!this._shouldShowMediaPlayerOnCurrentScreen()) {
+      return [];
+    }
+
+    return this._config.media_player.players.filter(player => {
+      if (!player || !player.entity) {
+        return false;
+      }
+
+      if (player.show === false) {
+        return false;
+      }
+
+      const state = this._hass?.states?.[player.entity];
+      if (!state) {
+        return false;
+      }
+
+      if (this._config.media_player.show === true || player.show === true || this._isInEditMode()) {
+        return true;
+      }
+
+      const visibleStates = Array.isArray(player.show_states) && player.show_states.length > 0
+        ? player.show_states
+        : ["playing", "paused"];
+
+      return visibleStates.includes(state.state);
+    });
+  }
+
+  _getMediaPlayerTitle(player, state) {
+    if (player.title) {
+      return player.title;
+    }
+
+    return state.attributes.media_title || state.attributes.friendly_name || player.entity;
+  }
+
+  _getMediaPlayerSubtitle(player, state) {
+    if (player.subtitle) {
+      return player.subtitle;
+    }
+
+    return state.attributes.media_artist || state.attributes.app_name || state.state;
+  }
+
+  _getMediaPlayerArtwork(player, state) {
+    return player.image || state.attributes.entity_picture || null;
+  }
+
+  _handleMediaControl(control, entityId) {
+    if (!this._hass || !entityId) {
+      return;
+    }
+
+    switch (control) {
+      case "previous":
+        this._hass.callService("media_player", "media_previous_track", { entity_id: entityId });
+        break;
+      case "next":
+        this._hass.callService("media_player", "media_next_track", { entity_id: entityId });
+        break;
+      case "play-pause":
+        this._hass.callService("media_player", "media_play_pause", { entity_id: entityId });
+        break;
+      default:
+        break;
+    }
+  }
+
+  _runAction(route, options = {}) {
+    const action = this._getRouteAction(route, options.defaultAction || null);
 
     if (!action || action.action === "none") {
       return;
@@ -521,6 +847,9 @@ class NodaliaNavigationBarCard extends HTMLElement {
       case "navigate":
         this._navigate(action.navigation_path || route.path);
         break;
+      case "open-popup":
+        this._openPopup(route, options.anchorElement);
+        return;
       case "url": {
         const url = action.url_path || action.url || route.url || route.path;
         if (!url) {
@@ -559,6 +888,187 @@ class NodaliaNavigationBarCard extends HTMLElement {
         // Unsupported actions are ignored so the card stays safe to use.
         break;
     }
+
+    if (options.closePopup) {
+      this._closePopup();
+    }
+  }
+
+  _renderPopup(currentPath) {
+    if (!this._popupState?.route) {
+      return "";
+    }
+
+    if (this._popupState.routeIndex < 0 || !this._renderedRoutes[this._popupState.routeIndex]) {
+      this._popupState = null;
+      return "";
+    }
+
+    const popupItems = this._getPopupItems(this._popupState.route);
+    if (!popupItems.length) {
+      this._popupState = null;
+      return "";
+    }
+
+    const popupMarkup = popupItems
+      .map((item, popupIndex) => {
+        const isActive = this._isNavItemActive(item, currentPath);
+        const badge = this._getBadge(item);
+
+        return `
+          <button
+            class="popup-item ${isActive ? "active" : ""}"
+            type="button"
+            data-popup-route-index="${this._popupState.routeIndex}"
+            data-popup-item-index="${popupIndex}"
+            aria-label="${escapeHtml(item.label || item.path || `Popup ${popupIndex + 1}`)}"
+          >
+            <span class="popup-item__icon-wrap">
+              ${this._renderIcon(item, isActive)}
+              ${
+                badge
+                  ? `<span
+                      class="nav-badge"
+                      style="--badge-background:${badge.background};--badge-color:${badge.color};"
+                    >${escapeHtml(badge.content)}</span>`
+                  : ""
+              }
+            </span>
+            <span class="popup-item__content">
+              <span class="popup-item__label">${escapeHtml(item.label || "Sin titulo")}</span>
+              ${
+                item.description
+                  ? `<span class="popup-item__description">${escapeHtml(item.description)}</span>`
+                  : ""
+              }
+            </span>
+          </button>
+        `;
+      })
+      .join("");
+
+    return `
+      <div class="popup-backdrop" data-popup-close="true"></div>
+      <div
+        class="popup-panel popup-panel--${this._popupState.direction}"
+        style="left:${this._popupState.left};top:${this._popupState.top};"
+      >
+        <div class="popup-items">
+          ${popupMarkup}
+        </div>
+      </div>
+    `;
+  }
+
+  _renderMediaPlayer(visiblePlayers) {
+    if (!visiblePlayers.length) {
+      return "";
+    }
+
+    this._activeMediaPlayerIndex = clamp(
+      this._activeMediaPlayerIndex,
+      0,
+      visiblePlayers.length - 1,
+    );
+
+    const player = visiblePlayers[this._activeMediaPlayerIndex];
+    const state = this._hass?.states?.[player.entity];
+
+    if (!state) {
+      return "";
+    }
+
+    const artwork = this._getMediaPlayerArtwork(player, state);
+    const title = this._getMediaPlayerTitle(player, state);
+    const subtitle = this._getMediaPlayerSubtitle(player, state);
+    const duration = Number(state.attributes.media_duration || 0);
+    const position = Number(state.attributes.media_position || 0);
+    const progress = duration > 0 ? clamp((position / duration) * 100, 0, 100) : null;
+    const albumCoverBackground = this._config.media_player.album_cover_background && artwork;
+    const dotsMarkup =
+      visiblePlayers.length > 1
+        ? `
+          <div class="media-player__dots" aria-label="Media players">
+            ${visiblePlayers
+              .map(
+                (_item, index) => `
+                  <button
+                    type="button"
+                    class="media-player__dot ${index === this._activeMediaPlayerIndex ? "active" : ""}"
+                    data-media-index="${index}"
+                    aria-label="Seleccionar reproductor ${index + 1}"
+                  ></button>
+                `,
+              )
+              .join("")}
+          </div>
+        `
+        : "";
+
+    return `
+      <div
+        class="media-player-card ${albumCoverBackground ? "has-album-background" : ""}"
+        data-media-card-index="${this._activeMediaPlayerIndex}"
+      >
+        ${
+          albumCoverBackground
+            ? `<div class="media-player__album-bg" style="background-image:url('${escapeHtml(artwork)}');"></div>`
+            : ""
+        }
+        ${
+          progress !== null
+            ? `
+              <div class="media-player__progress">
+                <span class="media-player__progress-fill" style="width:${progress}%"></span>
+              </div>
+            `
+            : ""
+        }
+        <div class="media-player__main">
+          <div class="media-player__artwork">
+            ${
+              artwork
+                ? `<img src="${escapeHtml(artwork)}" alt="${escapeHtml(title)}" />`
+                : `<ha-icon icon="${escapeHtml(player.icon || "mdi:music")}"></ha-icon>`
+            }
+          </div>
+          <div class="media-player__meta">
+            <div class="media-player__title">${escapeHtml(title)}</div>
+            <div class="media-player__subtitle">${escapeHtml(subtitle)}</div>
+          </div>
+          <div class="media-player__controls">
+            <button
+              type="button"
+              class="media-player__control"
+              data-media-control="previous"
+              data-entity="${escapeHtml(player.entity)}"
+              aria-label="Anterior"
+            >
+              <ha-icon icon="mdi:skip-previous"></ha-icon>
+            </button>
+            <button
+              type="button"
+              class="media-player__control media-player__control--primary"
+              data-media-control="play-pause"
+              data-entity="${escapeHtml(player.entity)}"
+              aria-label="Play o pausa"
+            >
+              <ha-icon icon="${escapeHtml(state.state === "playing" ? "mdi:pause" : "mdi:play")}"></ha-icon>
+            </button>
+            <button
+              type="button"
+              class="media-player__control"
+              data-media-control="next"
+              data-entity="${escapeHtml(player.entity)}"
+              aria-label="Siguiente"
+            >
+              <ha-icon icon="mdi:skip-next"></ha-icon>
+            </button>
+          </div>
+        </div>
+        ${dotsMarkup}
+      </div>
+    `;
   }
 
   _render() {
@@ -582,14 +1092,20 @@ class NodaliaNavigationBarCard extends HTMLElement {
     }
 
     const visibleRoutes = this._getVisibleRoutes();
+    const visiblePlayers = this._getVisibleMediaPlayers();
     const currentPath = normalizePath(window.location.pathname) || "/";
     const isFixed = config.layout.fixed && !inEditMode;
-    const spacerHeight = isFixed && config.layout.reserve_space ? config.layout.reserve_height : "0px";
+    const spacerHeight = isFixed && config.layout.reserve_space
+      ? this._getReservedHeight(visiblePlayers.length > 0)
+      : "0px";
     const titleMarkup = config.title
       ? `<div class="navbar-title">${escapeHtml(config.title)}</div>`
       : "";
 
     this._renderedRoutes = visibleRoutes;
+
+    const mediaPlayerMarkup = this._renderMediaPlayer(visiblePlayers);
+    const popupMarkup = this._renderPopup(currentPath);
 
     const routesMarkup =
       visibleRoutes.length > 0
@@ -605,10 +1121,11 @@ class NodaliaNavigationBarCard extends HTMLElement {
               ]
                 .filter(Boolean)
                 .join("");
+              const hasPopup = this._getPopupItems(route).length > 0;
 
               return `
                 <button
-                  class="nav-item ${isActive ? "active" : ""}"
+                  class="nav-item ${isActive ? "active" : ""} ${hasPopup ? "has-popup" : ""}"
                   data-route-index="${index}"
                   type="button"
                   style="${routeStyle}"
@@ -628,6 +1145,11 @@ class NodaliaNavigationBarCard extends HTMLElement {
                   ${
                     config.show_labels && label
                       ? `<span class="nav-label">${escapeHtml(label)}</span>`
+                      : ""
+                  }
+                  ${
+                    hasPopup
+                      ? `<span class="nav-popup-indicator" aria-hidden="true"></span>`
                       : ""
                   }
                 </button>
@@ -670,6 +1192,11 @@ class NodaliaNavigationBarCard extends HTMLElement {
           max-width: ${config.styles.bar.max_width};
           margin: 0 auto;
           pointer-events: auto;
+        }
+
+        .dock-stack {
+          display: grid;
+          gap: ${config.layout.stack_gap};
         }
 
         ha-card {
@@ -777,6 +1304,16 @@ class NodaliaNavigationBarCard extends HTMLElement {
           color: ${config.styles.button.active_label_color};
         }
 
+        .nav-popup-indicator {
+          background: currentColor;
+          border-radius: 999px;
+          bottom: 2px;
+          height: 4px;
+          opacity: 0.75;
+          position: absolute;
+          width: 4px;
+        }
+
         .nav-badge {
           align-items: center;
           background: var(--badge-background);
@@ -802,18 +1339,270 @@ class NodaliaNavigationBarCard extends HTMLElement {
           text-align: center;
           width: 100%;
         }
+
+        .popup-backdrop {
+          background: ${config.styles.popup.backdrop};
+          inset: 0;
+          position: fixed;
+          z-index: ${Number(config.layout.z_index) + 1};
+        }
+
+        .popup-panel {
+          background: ${config.styles.popup.background};
+          border: ${config.styles.popup.border};
+          border-radius: ${config.styles.popup.border_radius};
+          box-shadow: ${config.styles.popup.box_shadow};
+          max-height: calc(100vh - 24px);
+          min-width: ${config.styles.popup.min_width};
+          overflow: auto;
+          padding: ${config.styles.popup.padding};
+          position: fixed;
+          transform-origin: center bottom;
+          width: min(${config.styles.popup.min_width}, calc(100vw - 24px));
+          z-index: ${Number(config.layout.z_index) + 2};
+        }
+
+        .popup-panel--down {
+          transform-origin: center top;
+        }
+
+        .popup-items {
+          display: grid;
+          gap: ${config.styles.popup.item_gap};
+        }
+
+        .popup-item {
+          align-items: center;
+          appearance: none;
+          background: transparent;
+          border: 0;
+          border-radius: 18px;
+          color: var(--primary-text-color);
+          cursor: pointer;
+          display: grid;
+          gap: 12px;
+          grid-template-columns: ${config.styles.popup.item_size} 1fr;
+          padding: 8px;
+          text-align: left;
+          transition: background 160ms ease, transform 160ms ease;
+          width: 100%;
+        }
+
+        .popup-item:hover {
+          background: rgba(var(--rgb-primary-color), 0.08);
+          transform: translateY(-1px);
+        }
+
+        .popup-item.active {
+          background: rgba(var(--rgb-primary-color), 0.12);
+          color: ${config.styles.button.active_color};
+        }
+
+        .popup-item__icon-wrap {
+          align-items: center;
+          border-radius: 18px;
+          display: flex;
+          height: ${config.styles.popup.item_size};
+          justify-content: center;
+          position: relative;
+          width: ${config.styles.popup.item_size};
+        }
+
+        .popup-item__content {
+          display: grid;
+          gap: 3px;
+          min-width: 0;
+        }
+
+        .popup-item__label {
+          color: inherit;
+          font-size: 13px;
+          font-weight: 600;
+          line-height: 1.2;
+        }
+
+        .popup-item__description {
+          color: var(--secondary-text-color);
+          font-size: 12px;
+          line-height: 1.2;
+        }
+
+        .media-player-card {
+          background: ${config.styles.media_player.background};
+          border: ${config.styles.media_player.border};
+          border-radius: ${config.styles.media_player.border_radius};
+          box-shadow: ${config.styles.media_player.box_shadow};
+          cursor: pointer;
+          min-height: ${config.styles.media_player.min_height};
+          overflow: hidden;
+          padding: ${config.styles.media_player.padding};
+          position: relative;
+        }
+
+        .media-player-card.has-album-background::after {
+          background: linear-gradient(
+            135deg,
+            ${config.styles.media_player.overlay_color},
+            rgba(0, 0, 0, 0.08)
+          );
+          content: "";
+          inset: 0;
+          position: absolute;
+        }
+
+        .media-player__album-bg {
+          background-position: center;
+          background-size: cover;
+          filter: blur(22px);
+          inset: -16px;
+          opacity: 0.7;
+          position: absolute;
+          transform: scale(1.08);
+        }
+
+        .media-player__progress {
+          background: ${config.styles.media_player.progress_background};
+          border-radius: 999px;
+          height: 4px;
+          inset-inline: 14px;
+          overflow: hidden;
+          position: absolute;
+          top: 10px;
+          z-index: 1;
+        }
+
+        .media-player__progress-fill {
+          background: ${config.styles.media_player.progress_color};
+          display: block;
+          height: 100%;
+        }
+
+        .media-player__main,
+        .media-player__dots {
+          position: relative;
+          z-index: 1;
+        }
+
+        .media-player__main {
+          align-items: center;
+          display: grid;
+          gap: 12px;
+          grid-template-columns: ${config.styles.media_player.artwork_size} minmax(0, 1fr) auto;
+        }
+
+        .media-player__artwork {
+          align-items: center;
+          background: rgba(255, 255, 255, 0.12);
+          border-radius: 22px;
+          display: flex;
+          height: ${config.styles.media_player.artwork_size};
+          justify-content: center;
+          overflow: hidden;
+          width: ${config.styles.media_player.artwork_size};
+        }
+
+        .media-player__artwork img,
+        .media-player__artwork ha-icon {
+          height: 100%;
+          object-fit: cover;
+          width: 100%;
+        }
+
+        .media-player__artwork ha-icon {
+          font-size: calc(${config.styles.media_player.artwork_size} * 0.52);
+          padding: 14px;
+        }
+
+        .media-player__meta {
+          min-width: 0;
+        }
+
+        .media-player__title,
+        .media-player__subtitle {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .media-player__title {
+          color: var(--primary-text-color);
+          font-size: ${config.styles.media_player.title_size};
+          font-weight: 700;
+        }
+
+        .media-player__subtitle {
+          color: var(--secondary-text-color);
+          font-size: ${config.styles.media_player.subtitle_size};
+          margin-top: 4px;
+        }
+
+        .media-player__controls {
+          align-items: center;
+          display: inline-flex;
+          gap: 8px;
+        }
+
+        .media-player__control {
+          align-items: center;
+          appearance: none;
+          background: rgba(var(--rgb-primary-color), 0.1);
+          border: 0;
+          border-radius: 999px;
+          color: var(--primary-text-color);
+          cursor: pointer;
+          display: inline-flex;
+          height: ${config.styles.media_player.control_size};
+          justify-content: center;
+          width: ${config.styles.media_player.control_size};
+        }
+
+        .media-player__control--primary {
+          background: rgba(var(--rgb-primary-color), 0.18);
+          color: ${config.styles.button.active_color};
+        }
+
+        .media-player__control ha-icon {
+          font-size: 22px;
+        }
+
+        .media-player__dots {
+          display: flex;
+          gap: 8px;
+          justify-content: center;
+          margin-top: 12px;
+        }
+
+        .media-player__dot {
+          appearance: none;
+          background: rgba(var(--rgb-primary-color), 0.18);
+          border: 0;
+          border-radius: 999px;
+          cursor: pointer;
+          height: ${config.styles.media_player.dot_size};
+          padding: 0;
+          width: ${config.styles.media_player.dot_size};
+        }
+
+        .media-player__dot.active {
+          background: ${config.styles.button.active_color};
+          transform: scale(1.1);
+        }
       </style>
       <div class="spacer" aria-hidden="true"></div>
       <div class="dock">
         <div class="dock-inner">
-          <ha-card>
-            ${titleMarkup}
-            <nav class="navbar" aria-label="Navigation bar">
-              ${routesMarkup}
-            </nav>
-          </ha-card>
+          <div class="dock-stack">
+            ${mediaPlayerMarkup}
+            <ha-card>
+              ${titleMarkup}
+              <nav class="navbar" aria-label="Navigation bar">
+                ${routesMarkup}
+              </nav>
+            </ha-card>
+          </div>
         </div>
       </div>
+      ${popupMarkup}
     `;
   }
 }
@@ -1138,7 +1927,7 @@ class NodaliaNavigationBarEditor extends HTMLElement {
             </label>
           </div>
           <p class="hint">
-            Para acciones avanzadas, badges o estilos por ruta, puedes completar el YAML manualmente.
+            Para popups, media player, badges o estilos por ruta, puedes completar el YAML manualmente.
           </p>
         </div>
         <div class="panel">

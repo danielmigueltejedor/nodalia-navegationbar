@@ -1,0 +1,57 @@
+type: custom:nodalia-navigation-bar
+show_labels: false
+layout:
+  fixed: true
+  reserve_space: true
+  show_desktop: false
+  mobile_breakpoint: 1279
+  z_index: 2
+styles:
+  bar:
+    background: var(--ha-card-background)
+    border: 1px solid var(--divider-color)
+    border_radius: 32px
+    box_shadow: var(--ha-card-box-shadow)
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)) 16px
+    min_height: 90px
+    gap: 20px
+  button:
+    size: 60px
+    icon_size: 32px
+    color: var(--primary-text-color)
+media_player:
+  album_cover_background: true
+  players:
+    - entity: media_player.spotify_plus_daniel
+      title: Spotify
+      subtitle: Cuenta principal
+    - entity: media_player.salon
+      icon: mdi:speaker
+      subtitle: Altavoz del salon
+routes:
+  - icon: mdi:home-assistant
+    path: /lovelace/principal
+  - icon: mdi:flash
+    path: /lovelace/energia
+  - icon: mdi:thermostat
+    path: /lovelace/termostatos
+  - icon: mdi:dots-horizontal
+    label: Mas
+    popup:
+      - icon: mdi:security
+        label: Seguridad
+        path: /lovelace/seguridad
+      - icon: mdi:account
+        label: Perfil
+        path: /profile
+        users:
+          - 3b746808932e40958ec4fcf054f287ec
+          - 7b4e977112784070beb56114ec31bd99
+          - 0220bbe1ed2842b7ba9976c04a71b9de
+          - 53316bbdd54a4c139fb823c415ca3c8d
+          - d91b85c4b3114e508c50e65afcf944c8
+      - icon: mdi:cog
+        label: Ajustes
+        path: /config/dashboard
+        users:
+          - 7daa14a5edee4742848cf5ecc5ef0fb6

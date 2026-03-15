@@ -8,6 +8,8 @@ Tarjeta Lovelace ligera para Home Assistant pensada para reemplazar barras de na
 - Ocultacion automatica en escritorio o movil.
 - Rutas con visibilidad por usuario.
 - Deteccion de ruta activa.
+- Popups por ruta para agrupar accesos secundarios.
+- Media player integrado encima de la barra.
 - Soporte basico para `navigate`, `url`, `call-service`, `toggle` y `more-info`.
 - Badges sencillos por valor fijo o por entidad.
 - Editor visual simple para las opciones mas comunes.
@@ -83,6 +85,7 @@ routes:
 - `title`: texto opcional encima de la barra.
 - `show_labels`: muestra texto bajo cada icono.
 - `routes`: array de elementos.
+- `media_player`: widget opcional de reproduccion.
 - `layout`: comportamiento general.
 - `styles`: personalizacion visual.
 
@@ -94,6 +97,7 @@ layout:
   reserve_space: true
   reserve_height: calc(90px + env(safe-area-inset-bottom, 0px))
   position: bottom
+  stack_gap: 12px
   show_desktop: false
   mobile_breakpoint: 1279
   z_index: 2
@@ -132,6 +136,31 @@ styles:
     color: white
     min_size: 18px
     font_size: 11px
+  popup:
+    background: var(--ha-card-background)
+    border: 1px solid var(--divider-color)
+    border_radius: 24px
+    box_shadow: 0 18px 40px rgba(0, 0, 0, 0.22)
+    padding: 12px
+    min_width: 220px
+    item_gap: 12px
+    item_size: 52px
+    backdrop: rgba(0, 0, 0, 0.18)
+  media_player:
+    background: var(--ha-card-background)
+    border: 1px solid var(--divider-color)
+    border_radius: 28px
+    box_shadow: var(--ha-card-box-shadow)
+    padding: 14px
+    min_height: 104px
+    artwork_size: 64px
+    control_size: 40px
+    title_size: 14px
+    subtitle_size: 12px
+    progress_color: var(--primary-color)
+    progress_background: rgba(var(--rgb-primary-color), 0.14)
+    overlay_color: rgba(0, 0, 0, 0.32)
+    dot_size: 8px
 ```
 
 ## Formato de cada ruta
@@ -149,6 +178,10 @@ routes:
     match: exact
     users:
       - user-id-1
+    popup:
+      - icon: mdi:cog
+        label: Ajustes
+        path: /config/dashboard
     badge:
       entity: sensor.notificaciones
       show_zero: false
@@ -168,9 +201,113 @@ routes:
 - `match`: `exact` o `prefix`
 - `users`
 - `hidden`
+- `popup`
 - `badge`
 - `tap_action`
 - `color`, `active_color`, `active_background`
+
+## Popup por ruta
+
+Si una ruta tiene `popup`, la tarjeta abrira el menu automaticamente al pulsarla. Tambien puedes forzarlo con `tap_action.action: open-popup`.
+
+```yaml
+routes:
+  - icon: mdi:dots-horizontal
+    label: Mas
+    popup:
+      - icon: mdi:account
+        label: Perfil
+        path: /profile
+        users:
+          - 3b746808932e40958ec4fcf054f287ec
+      - icon: mdi:cog
+        label: Ajustes
+        path: /config/dashboard
+        users:
+          - 7daa14a5edee4742848cf5ecc5ef0fb6
+      - icon: mdi:robot
+        label: Automatizaciones
+        path: /config/automation/dashboard
+```
+
+Cada item del popup admite practicamente los mismos campos que una ruta normal: `icon`, `image`, `label`, `path`, `active_paths`, `users`, `badge` y `tap_action`.
+
+## Media player integrado
+
+El bloque `media_player` se muestra encima de la barra cuando encuentra reproductores visibles. Por defecto, un reproductor aparece si su estado es `playing` o `paused`.
+
+```yaml
+media_player:
+  show_desktop: false
+  album_cover_background: true
+  reserve_height: 116px
+  players:
+    - entity: media_player.spotify_plus_daniel
+      title: Spotify
+      subtitle: Cuenta principal
+    - entity: media_player.salon
+      icon: mdi:speaker
+      subtitle: Altavoz del salon
+```
+
+### Opciones del widget
+
+- `show`: `true` o `false` para forzar visibilidad global.
+- `show_desktop`: muestra el widget tambien en escritorio.
+- `album_cover_background`: usa la caratula como fondo difuminado.
+- `reserve_height`: altura extra reservada cuando la barra es fija.
+- `players`: lista de reproductores.
+
+### Opciones por reproductor
+
+- `entity`: entidad `media_player.*`.
+- `title`: titulo fijo opcional.
+- `subtitle`: subtitulo fijo opcional.
+- `icon`: icono alternativo si no quieres usar caratula.
+- `image`: imagen fija alternativa.
+- `show`: `true` o `false` para ese reproductor.
+- `show_states`: lista de estados visibles, por ejemplo `["playing", "paused", "idle"]`.
+- `tap_action`: accion al pulsar la tarjeta del reproductor.
+
+### Ejemplo completo con popup y media player
+
+```yaml
+type: custom:nodalia-navigation-bar
+show_labels: false
+layout:
+  fixed: true
+  reserve_space: true
+  show_desktop: false
+styles:
+  bar:
+    border_radius: 32px
+media_player:
+  album_cover_background: true
+  players:
+    - entity: media_player.spotify_plus_daniel
+      title: Spotify
+    - entity: media_player.salon
+      icon: mdi:speaker
+routes:
+  - icon: mdi:home-assistant
+    path: /lovelace/principal
+  - icon: mdi:flash
+    path: /lovelace/energia
+  - icon: mdi:thermostat
+    path: /lovelace/termostatos
+  - icon: mdi:dots-horizontal
+    label: Mas
+    popup:
+      - icon: mdi:security
+        label: Seguridad
+        path: /lovelace/seguridad
+      - icon: mdi:account
+        label: Perfil
+        path: /profile
+      - icon: mdi:cog
+        label: Ajustes
+        path: /config/dashboard
+```
 
 ## Acciones soportadas
 
@@ -222,9 +359,10 @@ routes:
 ## Limitaciones actuales
 
 - El editor integrado cubre solo la configuracion mas comun.
-- No incluye popups, media player ni templates JS.
+- Los popups y el media player se configuran mejor por YAML que desde el editor.
 - Si quieres acciones muy personalizadas, es mejor seguir ampliando el YAML.
 
 ## Archivo de ejemplo
 
 Puedes usar `examples/mobile-navbar.yaml` como base.
+Si quieres una base con popup y media player, usa `examples/mobile-navbar-popup-media.yaml`.
