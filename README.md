@@ -8,7 +8,7 @@ Tarjeta Lovelace ligera para Home Assistant pensada para reemplazar barras de na
 - Ocultacion automatica en escritorio o movil.
 - Rutas con visibilidad por usuario.
 - Deteccion de ruta activa.
-- Popups por ruta para agrupar accesos secundarios.
+- Popups por ruta para agrupar accesos secundarios, tambien en modo solo icono.
 - Media player integrado encima de la barra.
 - Soporte basico para `navigate`, `url`, `call-service`, `toggle` y `more-info`.
 - Badges sencillos por valor fijo o por entidad.
@@ -121,14 +121,17 @@ styles:
     max_width: 100%
     backdrop_filter: none
   button:
-    size: 60px
+    size: 54px
     border_radius: 999px
+    background: rgba(255, 255, 255, 0.05)
     color: var(--primary-text-color)
-    active_color: var(--primary-color)
-    active_background: rgba(var(--rgb-primary-color), 0.12)
-    icon_size: 32px
+    active_color: var(--primary-text-color)
+    active_background: rgba(255, 255, 255, 0.08)
+    icon_size: 28px
+    icon_offset_x: 0px
+    icon_offset_y: -1px
     label_color: var(--secondary-text-color)
-    active_label_color: var(--primary-color)
+    active_label_color: var(--primary-text-color)
     label_size: 12px
     label_gap: 6px
   badge:
@@ -143,8 +146,9 @@ styles:
     box_shadow: 0 18px 40px rgba(0, 0, 0, 0.22)
     padding: 12px
     min_width: 220px
+    max_width: 380px
     item_gap: 12px
-    item_size: 52px
+    item_size: 48px
     backdrop: rgba(0, 0, 0, 0.18)
   media_player:
     background: var(--ha-card-background)
@@ -209,6 +213,7 @@ routes:
 ## Popup por ruta
 
 Si una ruta tiene `popup`, la tarjeta abrira el menu automaticamente al pulsarla. Tambien puedes forzarlo con `tap_action.action: open-popup`.
+El popup ahora se muestra como rejilla compacta para que quepan mas accesos en pantalla y cada item puede tener solo icono, icono con etiqueta o icono con etiqueta y descripcion.
 
 ```yaml
 routes:
@@ -216,7 +221,6 @@ routes:
     label: Mas
     popup:
       - icon: mdi:account
-        label: Perfil
         path: /profile
         users:
           - 3b746808932e40958ec4fcf054f287ec
@@ -230,8 +234,8 @@ routes:
         path: /config/automation/dashboard
 ```
 
-Cada item del popup admite practicamente los mismos campos que una ruta normal: `icon`, `image`, `label`, `path`, `active_paths`, `users`, `badge` y `tap_action`.
-Tambien puedes crearlos y editarlos desde el editor visual de la tarjeta.
+Cada item del popup admite practicamente los mismos campos que una ruta normal: `icon`, `image`, `label`, `description`, `path`, `active_paths`, `users`, `badge` y `tap_action`.
+`label` es opcional, asi que puedes dejarlo vacio desde el editor visual para crear accesos solo con icono. Tambien puedes ajustar `styles.popup.max_width`, `styles.popup.item_size` y `styles.popup.item_gap` desde el editor para cambiar cuanta informacion entra en el popup.
 
 ## Media player integrado
 
@@ -290,6 +294,10 @@ styles:
     active_background: rgba(255, 255, 255, 0.12)
     active_color: var(--primary-text-color)
     active_label_color: var(--primary-text-color)
+  popup:
+    max_width: 420px
+    item_size: 46px
+    item_gap: 10px
 ```
 
 ### Ejemplo completo con popup y media player

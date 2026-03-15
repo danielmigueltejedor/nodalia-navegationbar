@@ -31,13 +31,13 @@ const DEFAULT_CONFIG = {
       backdrop_filter: "none",
     },
     button: {
-      size: "60px",
+      size: "54px",
       border_radius: "999px",
       background: "rgba(255, 255, 255, 0.05)",
       color: "var(--primary-text-color)",
       active_color: "var(--primary-text-color)",
       active_background: "rgba(255, 255, 255, 0.08)",
-      icon_size: "32px",
+      icon_size: "28px",
       icon_offset_x: "0px",
       icon_offset_y: "-1px",
       label_color: "var(--secondary-text-color)",
@@ -58,8 +58,9 @@ const DEFAULT_CONFIG = {
       box_shadow: "0 18px 40px rgba(0, 0, 0, 0.22)",
       padding: "12px",
       min_width: "220px",
+      max_width: "380px",
       item_gap: "12px",
-      item_size: "52px",
+      item_size: "48px",
       backdrop: "rgba(0, 0, 0, 0.18)",
     },
     media_player: {
@@ -267,6 +268,14 @@ function parsePrimitiveValue(value) {
   }
 
   return value;
+}
+
+function escapeSelectorValue(value) {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(String(value));
+  }
+
+  return String(value).replaceAll('"', '\\"');
 }
 
 function normalizePath(value) {
@@ -715,8 +724,21 @@ class NodaliaNavigationBarCard extends HTMLElement {
     }
 
     const anchorRect = anchorElement.getBoundingClientRect();
-    const popupWidth = Number.parseFloat(this._config?.styles?.popup?.min_width || "220") || 220;
-    const estimatedHeight = Math.min(window.innerHeight - 48, items.length * 68 + 24);
+    const popupMinWidth = Number.parseFloat(this._config?.styles?.popup?.min_width || "220") || 220;
+    const popupMaxWidth =
+      Number.parseFloat(
+        this._config?.styles?.popup?.max_width || this._config?.styles?.popup?.min_width || "380",
+      ) || Math.max(popupMinWidth, 380);
+    const popupWidth = Math.min(
+      Math.max(popupMinWidth, popupMaxWidth),
+      Math.max(popupMinWidth, window.innerWidth - 24),
+    );
+    const itemSize = Number.parseFloat(this._config?.styles?.popup?.item_size || "48") || 48;
+    const itemGap = Number.parseFloat(this._config?.styles?.popup?.item_gap || "12") || 12;
+    const tileWidth = itemSize + 24;
+    const columns = Math.max(1, Math.min(4, Math.floor((popupWidth - 24 + itemGap) / (tileWidth + itemGap))));
+    const rows = Math.ceil(items.length / columns);
+    const estimatedHeight = Math.min(window.innerHeight - 48, rows * (itemSize + 42) + 24);
     const preferredGap = 12;
     let direction = this._config.layout.position === "top" ? "down" : "up";
     let left = anchorRect.left + anchorRect.width / 2 - popupWidth / 2;
@@ -933,14 +955,18 @@ class NodaliaNavigationBarCard extends HTMLElement {
       .map((item, popupIndex) => {
         const isActive = this._isNavItemActive(item, currentPath);
         const badge = this._getBadge(item);
+        const hasLabel = Boolean(item.label);
+        const hasDescription = Boolean(item.description);
+        const isIconOnly = !hasLabel && !hasDescription;
+        const ariaLabel = item.label || item.description || item.path || `Popup ${popupIndex + 1}`;
 
         return `
           <button
-            class="popup-item ${isActive ? "active" : ""}"
+            class="popup-item ${isActive ? "active" : ""} ${isIconOnly ? "icon-only" : ""}"
             type="button"
             data-popup-route-index="${this._popupState.routeIndex}"
             data-popup-item-index="${popupIndex}"
-            aria-label="${escapeHtml(item.label || item.path || `Popup ${popupIndex + 1}`)}"
+            aria-label="${escapeHtml(ariaLabel)}"
           >
             <span class="popup-item__icon-wrap">
               ${this._renderIcon(item, isActive)}
@@ -953,14 +979,24 @@ class NodaliaNavigationBarCard extends HTMLElement {
                   : ""
               }
             </span>
-            <span class="popup-item__content">
-              <span class="popup-item__label">${escapeHtml(item.label || "Sin titulo")}</span>
-              ${
-                item.description
-                  ? `<span class="popup-item__description">${escapeHtml(item.description)}</span>`
-                  : ""
-              }
-            </span>
+            ${
+              hasLabel || hasDescription
+                ? `
+                  <span class="popup-item__content">
+                    ${
+                      hasLabel
+                        ? `<span class="popup-item__label">${escapeHtml(item.label)}</span>`
+                        : ""
+                    }
+                    ${
+                      hasDescription
+                        ? `<span class="popup-item__description">${escapeHtml(item.description)}</span>`
+                        : ""
+                    }
+                  </span>
+                `
+                : ""
+            }
           </button>
         `;
       })
@@ -1394,12 +1430,12 @@ class NodaliaNavigationBarCard extends HTMLElement {
           border-radius: ${config.styles.popup.border_radius};
           box-shadow: ${config.styles.popup.box_shadow};
           max-height: calc(100vh - 24px);
-          min-width: ${config.styles.popup.min_width};
+          min-width: min(${config.styles.popup.min_width}, calc(100vw - 24px));
           overflow: auto;
           padding: ${config.styles.popup.padding};
           position: fixed;
           transform-origin: center bottom;
-          width: min(${config.styles.popup.min_width}, calc(100vw - 24px));
+          width: min(${config.styles.popup.max_width}, calc(100vw - 24px));
           z-index: ${Number(config.layout.z_index) + 2};
         }
 
@@ -1408,25 +1444,32 @@ class NodaliaNavigationBarCard extends HTMLElement {
         }
 
         .popup-items {
+          align-items: start;
           display: grid;
           gap: ${config.styles.popup.item_gap};
+          grid-template-columns: repeat(auto-fit, minmax(calc(${config.styles.popup.item_size} + 24px), 1fr));
         }
 
         .popup-item {
-          align-items: center;
           appearance: none;
           background: transparent;
           border: 0;
-          border-radius: 18px;
+          border-radius: 20px;
           color: var(--primary-text-color);
           cursor: pointer;
-          display: grid;
-          gap: 12px;
-          grid-template-columns: ${config.styles.popup.item_size} 1fr;
-          padding: 8px;
-          text-align: left;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          justify-content: center;
+          min-height: calc(${config.styles.popup.item_size} + 36px);
+          padding: 10px 8px;
+          text-align: center;
           transition: background 160ms ease, transform 160ms ease;
           width: 100%;
+        }
+
+        .popup-item.icon-only {
+          min-height: calc(${config.styles.popup.item_size} + 18px);
         }
 
         .popup-item:hover {
@@ -1441,7 +1484,9 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .popup-item__icon-wrap {
           align-items: center;
+          background: rgba(255, 255, 255, 0.04);
           border-radius: 18px;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
           display: flex;
           height: ${config.styles.popup.item_size};
           justify-content: center;
@@ -1450,10 +1495,16 @@ class NodaliaNavigationBarCard extends HTMLElement {
           width: ${config.styles.popup.item_size};
         }
 
+        .popup-item.active .popup-item__icon-wrap {
+          background: ${config.styles.button.active_background};
+        }
+
         .popup-item__content {
           display: grid;
-          gap: 3px;
+          gap: 4px;
+          justify-items: center;
           min-width: 0;
+          width: 100%;
         }
 
         .popup-item__label {
@@ -1461,12 +1512,17 @@ class NodaliaNavigationBarCard extends HTMLElement {
           font-size: 13px;
           font-weight: 600;
           line-height: 1.2;
+          text-align: center;
+          white-space: normal;
         }
 
         .popup-item__description {
           color: var(--secondary-text-color);
           font-size: 12px;
           line-height: 1.2;
+          max-width: 100%;
+          text-align: center;
+          white-space: normal;
         }
 
         .media-player-card {
@@ -1687,9 +1743,91 @@ class NodaliaNavigationBarEditor extends HTMLElement {
     this._render();
   }
 
+  _captureFocusState() {
+    const activeElement = this.shadowRoot?.activeElement;
+
+    if (!(activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement)) {
+      return null;
+    }
+
+    const dataset = activeElement.dataset || {};
+    let selector = null;
+
+    if (dataset.field) {
+      selector = `[data-field="${escapeSelectorValue(dataset.field)}"]`;
+    } else if (dataset.playerField && dataset.playerIndex !== undefined) {
+      selector =
+        `[data-player-index="${escapeSelectorValue(dataset.playerIndex)}"]` +
+        `[data-player-field="${escapeSelectorValue(dataset.playerField)}"]`;
+    } else if (
+      dataset.popupField &&
+      dataset.routeIndex !== undefined &&
+      dataset.popupIndex !== undefined
+    ) {
+      selector =
+        `[data-route-index="${escapeSelectorValue(dataset.routeIndex)}"]` +
+        `[data-popup-index="${escapeSelectorValue(dataset.popupIndex)}"]` +
+        `[data-popup-field="${escapeSelectorValue(dataset.popupField)}"]`;
+    } else if (dataset.routeField && dataset.routeIndex !== undefined) {
+      selector =
+        `[data-route-index="${escapeSelectorValue(dataset.routeIndex)}"]` +
+        `[data-route-field="${escapeSelectorValue(dataset.routeField)}"]`;
+    }
+
+    if (!selector) {
+      return null;
+    }
+
+    const supportsSelection =
+      typeof activeElement.selectionStart === "number" &&
+      typeof activeElement.selectionEnd === "number";
+
+    return {
+      selector,
+      selectionEnd: supportsSelection ? activeElement.selectionEnd : null,
+      selectionStart: supportsSelection ? activeElement.selectionStart : null,
+      type: activeElement.type,
+    };
+  }
+
+  _restoreFocusState(focusState) {
+    if (!focusState?.selector || !this.shadowRoot) {
+      return;
+    }
+
+    const target = this.shadowRoot.querySelector(focusState.selector);
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+      return;
+    }
+
+    try {
+      target.focus({ preventScroll: true });
+    } catch (_error) {
+      target.focus();
+    }
+
+    const canRestoreSelection =
+      focusState.type !== "checkbox" &&
+      typeof focusState.selectionStart === "number" &&
+      typeof focusState.selectionEnd === "number" &&
+      typeof target.setSelectionRange === "function";
+
+    if (!canRestoreSelection) {
+      return;
+    }
+
+    try {
+      target.setSelectionRange(focusState.selectionStart, focusState.selectionEnd);
+    } catch (_error) {
+      // Ignore inputs that do not support selection ranges.
+    }
+  }
+
   _emitConfig(nextConfig) {
+    const focusState = this._captureFocusState();
     this._config = compactConfig(this._prepareEditorConfig(nextConfig));
     this._render();
+    this._restoreFocusState(focusState);
     fireEvent(this, "config-changed", {
       config: this._config,
     });
@@ -1870,7 +2008,6 @@ class NodaliaNavigationBarEditor extends HTMLElement {
 
       route.popup.push({
         icon: "mdi:dots-circle",
-        label: `Popup ${route.popup.length + 1}`,
         path: "/lovelace/nueva-ruta",
       });
       this._emitConfig(nextConfig);
@@ -1926,13 +2063,15 @@ class NodaliaNavigationBarEditor extends HTMLElement {
         </div>
         <div class="grid">
           <label>
-            <span>Etiqueta</span>
+            <span>Etiqueta opcional</span>
             <input
               type="text"
               data-route-index="${routeIndex}"
               data-popup-index="${popupIndex}"
               data-popup-field="label"
+              data-optional="true"
               value="${escapeHtml(popupItem.label || "")}"
+              placeholder="Dejalo vacio para solo icono"
             />
           </label>
           <label>
@@ -2343,6 +2482,33 @@ class NodaliaNavigationBarEditor extends HTMLElement {
             <label>
               <span>Tamano boton</span>
               <input type="text" data-field="styles.button.size" value="${escapeHtml(config.styles.button.size || "")}" />
+            </label>
+            <label>
+              <span>Ancho popup</span>
+              <input
+                type="text"
+                data-field="styles.popup.max_width"
+                data-optional="true"
+                value="${escapeHtml(config.styles.popup.max_width || "")}"
+              />
+            </label>
+            <label>
+              <span>Tamano item popup</span>
+              <input
+                type="text"
+                data-field="styles.popup.item_size"
+                data-optional="true"
+                value="${escapeHtml(config.styles.popup.item_size || "")}"
+              />
+            </label>
+            <label>
+              <span>Separacion popup</span>
+              <input
+                type="text"
+                data-field="styles.popup.item_gap"
+                data-optional="true"
+                value="${escapeHtml(config.styles.popup.item_gap || "")}"
+              />
             </label>
             <label class="checkbox">
               <input type="checkbox" data-field="show_labels" ${config.show_labels ? "checked" : ""} />
