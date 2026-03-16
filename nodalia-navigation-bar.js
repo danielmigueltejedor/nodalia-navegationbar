@@ -1,10 +1,24 @@
 const CARD_TAG = "nodalia-navigation-bar";
 const EDITOR_TAG = "nodalia-navigation-bar-editor";
 const CARD_VERSION = "0.1.0";
+const HAPTIC_PATTERNS = {
+  selection: 8,
+  light: 10,
+  medium: 16,
+  heavy: 24,
+  success: [10, 40, 10],
+  warning: [20, 50, 12],
+  failure: [12, 40, 12, 40, 18],
+};
 
 const DEFAULT_CONFIG = {
   title: "",
   show_labels: false,
+  haptics: {
+    enabled: false,
+    style: "selection",
+    fallback_vibrate: false,
+  },
   layout: {
     fixed: true,
     reserve_space: true,
@@ -379,7 +393,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
     this._popupState = null;
     this._popupPositionFrame = null;
     this._activeMediaPlayerIndex = 0;
-    this._mediaPlayerExpanded = true;
+    this._mediaPlayerExpanded = false;
     this._mediaTicker = null;
     this._onResize = () => {
       this._closePopup(false);
@@ -436,6 +450,30 @@ class NodaliaNavigationBarCard extends HTMLElement {
     return 1;
   }
 
+  _triggerHaptic(style = this._config?.haptics?.style) {
+    if (!this._config?.haptics?.enabled) {
+      return;
+    }
+
+    const hapticStyle = String(style || "selection");
+
+    try {
+      fireEvent(this, "haptic", hapticStyle);
+    } catch (_error) {
+      // Ignore event dispatch issues and try browser vibration fallback below.
+    }
+
+    if (
+      !this._config.haptics.fallback_vibrate ||
+      typeof navigator === "undefined" ||
+      typeof navigator.vibrate !== "function"
+    ) {
+      return;
+    }
+
+    navigator.vibrate(HAPTIC_PATTERNS[hapticStyle] || HAPTIC_PATTERNS.selection);
+  }
+
   _onShadowClick(event) {
     const popupCloseTrigger = event
       .composedPath()
@@ -455,6 +493,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
     if (mediaControlButton) {
       event.preventDefault();
       event.stopPropagation();
+      this._triggerHaptic();
       this._handleMediaControl(
         mediaControlButton.dataset.mediaControl,
         mediaControlButton.dataset.entity,
@@ -469,6 +508,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
     if (mediaToggleButton) {
       event.preventDefault();
       event.stopPropagation();
+      this._triggerHaptic();
       this._mediaPlayerExpanded = mediaToggleButton.dataset.mediaToggle === "expand";
       this._render();
       return;
@@ -481,6 +521,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
     if (mediaDotButton) {
       event.preventDefault();
       event.stopPropagation();
+      this._triggerHaptic();
       this._activeMediaPlayerIndex = Number(mediaDotButton.dataset.mediaIndex);
       this._render();
       return;
@@ -497,6 +538,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
       if (player) {
         event.preventDefault();
         event.stopPropagation();
+        this._triggerHaptic();
         this._runAction(player, {
           closePopup: false,
           defaultAction: {
@@ -522,6 +564,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
       if (popupItem) {
         event.preventDefault();
         event.stopPropagation();
+        this._triggerHaptic();
         this._runAction(popupItem, {
           closePopup: true,
         });
@@ -546,6 +589,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
     event.preventDefault();
     event.stopPropagation();
+    this._triggerHaptic();
     this._runAction(route, {
       anchorElement: routeButton,
     });
@@ -1568,7 +1612,12 @@ class NodaliaNavigationBarCard extends HTMLElement {
     const showRouteLabels = this._shouldShowRouteLabels(visibleRoutes);
     const visiblePlayers = this._getVisibleMediaPlayers();
     const hasVisiblePlayers = visiblePlayers.length > 0;
-    const showMediaPlayerCard = hasVisiblePlayers && (inEditMode || this._mediaPlayerExpanded !== false);
+
+    if (!hasVisiblePlayers) {
+      this._mediaPlayerExpanded = false;
+    }
+
+    const showMediaPlayerCard = hasVisiblePlayers && (inEditMode || this._mediaPlayerExpanded === true);
     const showMediaPlayerToggle = hasVisiblePlayers && !showMediaPlayerCard;
     const currentPath = normalizePath(window.location.pathname) || "/";
     const isFixed = config.layout.fixed && !inEditMode;
@@ -2459,6 +2508,10 @@ class NodaliaNavigationBarEditor extends HTMLElement {
       config.routes = [];
     }
 
+    if (!isObject(config.haptics)) {
+      config.haptics = {};
+    }
+
     if (!isObject(config.media_player)) {
       config.media_player = {};
     }
@@ -3322,6 +3375,26 @@ class NodaliaNavigationBarEditor extends HTMLElement {
             <label>
               <span>Titulo</span>
               <input type="text" data-field="title" data-optional="true" value="${escapeHtml(config.title || "")}" />
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" data-field="haptics.enabled" ${config.haptics.enabled ? "checked" : ""} />
+              <span>Respuesta haptica</span>
+            </label>
+            <label>
+              <span>Estilo haptico</span>
+              <select data-field="haptics.style">
+                <option value="selection" ${config.haptics.style === "selection" ? "selected" : ""}>Selection</option>
+                <option value="light" ${config.haptics.style === "light" ? "selected" : ""}>Light</option>
+                <option value="medium" ${config.haptics.style === "medium" ? "selected" : ""}>Medium</option>
+                <option value="heavy" ${config.haptics.style === "heavy" ? "selected" : ""}>Heavy</option>
+                <option value="success" ${config.haptics.style === "success" ? "selected" : ""}>Success</option>
+                <option value="warning" ${config.haptics.style === "warning" ? "selected" : ""}>Warning</option>
+                <option value="failure" ${config.haptics.style === "failure" ? "selected" : ""}>Failure</option>
+              </select>
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" data-field="haptics.fallback_vibrate" ${config.haptics.fallback_vibrate ? "checked" : ""} />
+              <span>Fallback con vibracion</span>
             </label>
             <label>
               <span>Breakpoint movil</span>

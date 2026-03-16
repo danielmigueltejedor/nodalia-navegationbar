@@ -84,10 +84,24 @@ routes:
 
 - `title`: texto opcional encima de la barra.
 - `show_labels`: muestra texto bajo cada icono si las rutas visibles tienen `label`.
+- `haptics`: respuesta haptica opcional en botones.
 - `routes`: array de elementos.
 - `media_player`: widget opcional de reproduccion.
 - `layout`: comportamiento general.
 - `styles`: personalizacion visual.
+
+### `haptics`
+
+```yaml
+haptics:
+  enabled: true
+  style: selection
+  fallback_vibrate: false
+```
+
+- `enabled`: activa la respuesta haptica en botones de navbar, popup y media player.
+- `style`: `selection`, `light`, `medium`, `heavy`, `success`, `warning` o `failure`.
+- `fallback_vibrate`: usa `navigator.vibrate()` si el entorno no reacciona al evento haptico.
 
 ### `layout`
 
@@ -244,7 +258,7 @@ Cada item del popup admite practicamente los mismos campos que una ruta normal: 
 ## Media player integrado
 
 El bloque `media_player` se muestra encima de la barra cuando encuentra reproductores visibles. Por defecto, un reproductor aparece si su estado es `playing` o `paused`.
-Desde la propia UI puedes plegarlo temporalmente y volver a mostrarlo con una pastilla compacta, sin tocar la configuracion.
+La vista inicial es la pastilla compacta, menos intrusiva, y desde la propia UI puedes tocarla para desplegar el reproductor completo o volver a plegarlo despues, sin tocar la configuracion.
 
 ```yaml
 media_player:
