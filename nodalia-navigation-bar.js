@@ -1641,7 +1641,16 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .popup-panel--compact {
           min-width: 0;
-          width: fit-content;
+          padding: 8px;
+          width: auto;
+        }
+
+        .popup-panel--compact .popup-items {
+          align-items: center;
+          display: flex;
+          flex-direction: column;
+          gap: ${config.styles.popup.item_gap};
+          justify-content: center;
         }
 
         .popup-panel--layout-horizontal .popup-items,
@@ -1731,7 +1740,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
         .popup-panel--layout-vertical.popup-panel--icon-only .popup-item {
           background: transparent;
           min-height: auto;
-          padding: 4px 0;
+          padding: 0;
           width: auto;
         }
 
