@@ -339,6 +339,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
     this._hass = null;
     this._renderedRoutes = [];
     this._popupState = null;
+    this._popupPositionFrame = null;
     this._activeMediaPlayerIndex = 0;
     this._onResize = () => {
       this._closePopup(false);
@@ -371,6 +372,10 @@ class NodaliaNavigationBarCard extends HTMLElement {
     window.removeEventListener("popstate", this._onLocationChange);
     window.removeEventListener("location-changed", this._onLocationChange);
     window.removeEventListener("keydown", this._onWindowKeyDown);
+    if (this._popupPositionFrame) {
+      cancelAnimationFrame(this._popupPositionFrame);
+      this._popupPositionFrame = null;
+    }
   }
 
   setConfig(config) {
@@ -781,10 +786,89 @@ class NodaliaNavigationBarCard extends HTMLElement {
       return;
     }
 
+    if (this._popupPositionFrame) {
+      cancelAnimationFrame(this._popupPositionFrame);
+      this._popupPositionFrame = null;
+    }
+
     this._popupState = null;
     if (shouldRender) {
       this._render();
     }
+  }
+
+  _schedulePopupPositionSync() {
+    if (!this._popupState || !this.shadowRoot) {
+      return;
+    }
+
+    if (this._popupPositionFrame) {
+      cancelAnimationFrame(this._popupPositionFrame);
+    }
+
+    this._popupPositionFrame = requestAnimationFrame(() => {
+      this._popupPositionFrame = null;
+      this._syncPopupPosition();
+    });
+  }
+
+  _syncPopupPosition() {
+    if (!this._popupState || !this.shadowRoot) {
+      return;
+    }
+
+    const panel = this.shadowRoot.querySelector(".popup-panel");
+    const anchor = this.shadowRoot.querySelector(
+      `[data-route-index="${escapeSelectorValue(this._popupState.routeIndex)}"]`,
+    );
+
+    if (!(panel instanceof HTMLElement) || !(anchor instanceof HTMLElement)) {
+      return;
+    }
+
+    const panelRect = panel.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const preferredGap = this._popupState.layout === "horizontal" ? 4 : 6;
+    const previousDirection = this._popupState.direction;
+    let direction = previousDirection;
+    let left = anchorRect.left + anchorRect.width / 2 - panelRect.width / 2;
+
+    left = clamp(left, 12, Math.max(12, window.innerWidth - panelRect.width - 12));
+
+    let top = direction === "up"
+      ? anchorRect.top - panelRect.height - preferredGap
+      : anchorRect.bottom + preferredGap;
+
+    if (direction === "up" && top < 12) {
+      direction = "down";
+      top = anchorRect.bottom + preferredGap;
+    }
+
+    if (direction === "down" && top + panelRect.height > window.innerHeight - 12) {
+      direction = "up";
+      top = anchorRect.top - panelRect.height - preferredGap;
+    }
+
+    top = clamp(top, 12, Math.max(12, window.innerHeight - panelRect.height - 12));
+
+    const nextLeft = `${left}px`;
+    const nextTop = `${top}px`;
+
+    this._popupState = {
+      ...this._popupState,
+      direction,
+      left: nextLeft,
+      top: nextTop,
+      width: `${panelRect.width}px`,
+    };
+
+    if (direction !== previousDirection) {
+      this._render();
+      return;
+    }
+
+    panel.style.left = nextLeft;
+    panel.style.top = nextTop;
   }
 
   _openPopup(route, anchorElement) {
@@ -797,7 +881,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
     const popupMetrics = this._getPopupMetrics(route, items);
     const popupWidth = popupMetrics.width;
     const estimatedHeight = popupMetrics.estimatedHeight;
-    const preferredGap = 12;
+    const preferredGap = popupMetrics.layout === "horizontal" ? 4 : 6;
     let direction = this._config.layout.position === "top" ? "down" : "up";
     let left = anchorRect.left + anchorRect.width / 2 - popupWidth / 2;
 
@@ -1511,7 +1595,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
           background: ${config.styles.popup.background};
           border: ${config.styles.popup.border};
           border-radius: ${config.styles.popup.border_radius};
-          box-shadow: ${config.styles.popup.box_shadow};
+          box-shadow: ${config.styles.bar.box_shadow}, ${config.styles.popup.box_shadow};
           --popup-columns: 1;
           --popup-item-min: calc(${config.styles.popup.item_size} + 24px);
           max-height: calc(100vh - 24px);
@@ -1600,6 +1684,20 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .popup-item.active .popup-item__icon-wrap {
           background: var(--popup-route-active-background);
+        }
+
+        .popup-panel--layout-horizontal .popup-item.icon-only,
+        .popup-panel--layout-auto .popup-item.icon-only {
+          background: transparent;
+          min-height: auto;
+          padding: 2px 0;
+        }
+
+        .popup-panel--layout-horizontal .popup-item.icon-only:hover,
+        .popup-panel--layout-auto .popup-item.icon-only:hover,
+        .popup-panel--layout-horizontal .popup-item.icon-only.active,
+        .popup-panel--layout-auto .popup-item.icon-only.active {
+          background: transparent;
         }
 
         .popup-panel--layout-vertical .popup-item {
@@ -1809,6 +1907,10 @@ class NodaliaNavigationBarCard extends HTMLElement {
       </div>
       ${popupMarkup}
     `;
+
+    if (this._popupState) {
+      this._schedulePopupPositionSync();
+    }
   }
 }
 
@@ -1853,7 +1955,13 @@ class NodaliaNavigationBarEditor extends HTMLElement {
   _captureFocusState() {
     const activeElement = this.shadowRoot?.activeElement;
 
-    if (!(activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement)) {
+    if (
+      !(
+        activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement ||
+        activeElement instanceof HTMLSelectElement
+      )
+    ) {
       return null;
     }
 
@@ -1903,7 +2011,13 @@ class NodaliaNavigationBarEditor extends HTMLElement {
     }
 
     const target = this.shadowRoot.querySelector(focusState.selector);
-    if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+    if (
+      !(
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      )
+    ) {
       return;
     }
 
@@ -1938,6 +2052,19 @@ class NodaliaNavigationBarEditor extends HTMLElement {
     fireEvent(this, "config-changed", {
       config: this._config,
     });
+  }
+
+  _setEditorConfig(nextConfig) {
+    this._config = compactConfig(this._prepareEditorConfig(nextConfig));
+  }
+
+  _commitEditorConfig(nextConfig, shouldEmit) {
+    if (shouldEmit) {
+      this._emitConfig(nextConfig);
+      return;
+    }
+
+    this._setEditorConfig(nextConfig);
   }
 
   _applyFieldValue(target, key, field) {
@@ -1987,6 +2114,7 @@ class NodaliaNavigationBarEditor extends HTMLElement {
   }
 
   _onShadowInput(event) {
+    const shouldEmit = event.type === "change";
     const field = event
       .composedPath()
       .find(node => node instanceof HTMLElement && node.dataset?.field);
@@ -2003,7 +2131,7 @@ class NodaliaNavigationBarEditor extends HTMLElement {
         setByPath(nextConfig, field.dataset.field, value);
       }
 
-      this._emitConfig(nextConfig);
+      this._commitEditorConfig(nextConfig, shouldEmit);
       return;
     }
 
@@ -2022,7 +2150,7 @@ class NodaliaNavigationBarEditor extends HTMLElement {
       }
 
       this._applyFieldValue(player, playerField.dataset.playerField, playerField);
-      this._emitConfig(nextConfig);
+      this._commitEditorConfig(nextConfig, shouldEmit);
       return;
     }
 
@@ -2041,7 +2169,7 @@ class NodaliaNavigationBarEditor extends HTMLElement {
       }
 
       this._applyFieldValue(route, routeField.dataset.routeField, routeField);
-      this._emitConfig(nextConfig);
+      this._commitEditorConfig(nextConfig, shouldEmit);
       return;
     }
 
@@ -2069,7 +2197,7 @@ class NodaliaNavigationBarEditor extends HTMLElement {
     }
 
     this._applyFieldValue(popupItem, popupField.dataset.popupField, popupField);
-    this._emitConfig(nextConfig);
+    this._commitEditorConfig(nextConfig, shouldEmit);
   }
 
   _onShadowClick(event) {
