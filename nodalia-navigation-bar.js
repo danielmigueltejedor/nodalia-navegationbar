@@ -1103,6 +1103,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
       return "";
     }
     const popupHasText = popupItems.some(item => Boolean(this._getRouteLabel(item) || item.description));
+    const isCompactPopup = !popupHasText && Number(this._popupState.columns || 1) === 1;
 
     const popupMarkup = popupItems
       .map((item, popupIndex) => {
@@ -1168,8 +1169,8 @@ class NodaliaNavigationBarCard extends HTMLElement {
     return `
       <div class="popup-backdrop" data-popup-close="true"></div>
       <div
-        class="popup-panel popup-panel--${this._popupState.direction} popup-panel--layout-${this._popupState.layout || "auto"} ${popupHasText ? "popup-panel--with-text" : "popup-panel--icon-only"}"
-        style="left:${this._popupState.left};top:${this._popupState.top};width:${this._popupState.width};--popup-columns:${this._popupState.columns || 1};--popup-item-min:${this._popupState.itemMinWidth || `calc(${this._config.styles.popup.item_size} + 24px)`};"
+        class="popup-panel popup-panel--${this._popupState.direction} popup-panel--layout-${this._popupState.layout || "auto"} ${popupHasText ? "popup-panel--with-text" : "popup-panel--icon-only"} ${isCompactPopup ? "popup-panel--compact" : ""}"
+        style="left:${this._popupState.left};top:${this._popupState.top};width:${isCompactPopup ? "fit-content" : this._popupState.width};--popup-columns:${this._popupState.columns || 1};--popup-item-min:${this._popupState.itemMinWidth || `calc(${this._config.styles.popup.item_size} + 24px)`};"
       >
         <div class="popup-items">
           ${popupMarkup}
@@ -1636,6 +1637,11 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .popup-panel--layout-vertical.popup-panel--icon-only {
           min-width: 0;
+        }
+
+        .popup-panel--compact {
+          min-width: 0;
+          width: fit-content;
         }
 
         .popup-panel--layout-horizontal .popup-items,
