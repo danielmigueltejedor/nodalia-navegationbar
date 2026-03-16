@@ -56,6 +56,7 @@ const DEFAULT_CONFIG = {
       border: "1px solid var(--divider-color)",
       border_radius: "24px",
       box_shadow: "0 18px 40px rgba(0, 0, 0, 0.22)",
+      layout: "auto",
       padding: "12px",
       min_width: "220px",
       max_width: "380px",
@@ -644,11 +645,80 @@ class NodaliaNavigationBarCard extends HTMLElement {
     };
   }
 
+  _getRouteLabel(route) {
+    return route?.label || route?.name || route?.title || "";
+  }
+
+  _shouldShowRouteLabels(routes) {
+    if (!this._config?.show_labels) {
+      return false;
+    }
+
+    return routes.some(route => Boolean(this._getRouteLabel(route)));
+  }
+
+  _getPopupLayout(route) {
+    const layout = route?.popup_layout || this._config?.styles?.popup?.layout || "auto";
+    return ["auto", "vertical", "horizontal"].includes(layout) ? layout : "auto";
+  }
+
+  _getPopupMetrics(route, items) {
+    const popupStyles = this._config?.styles?.popup || {};
+    const popupMinWidth = Number.parseFloat(popupStyles.min_width || "220") || 220;
+    const popupMaxWidth =
+      Number.parseFloat(popupStyles.max_width || popupStyles.min_width || "380") ||
+      Math.max(popupMinWidth, 380);
+    const itemSize = Number.parseFloat(popupStyles.item_size || "48") || 48;
+    const itemGap = Number.parseFloat(popupStyles.item_gap || "12") || 12;
+    const panelPadding = Number.parseFloat(popupStyles.padding || "12") || 12;
+    const viewportWidth = Math.max(240, (window.innerWidth || popupMaxWidth) - 24);
+    const maxWidth = Math.max(Math.min(popupMaxWidth, viewportWidth), Math.min(popupMinWidth, viewportWidth));
+    const minWidth = Math.min(popupMinWidth, maxWidth);
+    const hasText = items.some(item => Boolean(this._getRouteLabel(item) || item.description));
+    const itemMinWidth = itemSize + (hasText ? 42 : 20);
+    const maxColumnsThatFit = Math.max(
+      1,
+      Math.min(
+        items.length || 1,
+        Math.floor((maxWidth - panelPadding * 2 + itemGap) / (itemMinWidth + itemGap)),
+      ),
+    );
+
+    let columns = 1;
+    const layout = this._getPopupLayout(route);
+    if (layout === "horizontal") {
+      columns = maxColumnsThatFit;
+    } else if (layout === "auto") {
+      columns = items.length <= 2 ? 1 : maxColumnsThatFit;
+    }
+
+    columns = Math.max(1, Math.min(columns, items.length || 1));
+
+    const rows = Math.max(1, Math.ceil((items.length || 1) / columns));
+    const widthFromColumns =
+      columns * itemMinWidth + Math.max(0, columns - 1) * itemGap + panelPadding * 2;
+    const width = clamp(widthFromColumns, minWidth, maxWidth);
+    const rowHeight = itemSize + (hasText ? 56 : 26);
+    const viewportHeight = Math.max(160, (window.innerHeight || 320) - 48);
+    const estimatedHeight = Math.min(
+      Math.max(120, rows * rowHeight + panelPadding * 2),
+      viewportHeight,
+    );
+
+    return {
+      columns,
+      estimatedHeight,
+      itemMinWidth,
+      layout,
+      width,
+    };
+  }
+
   _renderIcon(route, isActive) {
     const image = isActive ? route.image_active || route.image : route.image || route.image_active;
 
     if (image) {
-      return `<img class="nav-image" src="${escapeHtml(image)}" alt="${escapeHtml(route.label || "navigation item")}" />`;
+      return `<img class="nav-image" src="${escapeHtml(image)}" alt="${escapeHtml(this._getRouteLabel(route) || "navigation item")}" />`;
     }
 
     const icon = isActive ? route.icon_active || route.icon : route.icon || route.icon_active;
@@ -724,21 +794,9 @@ class NodaliaNavigationBarCard extends HTMLElement {
     }
 
     const anchorRect = anchorElement.getBoundingClientRect();
-    const popupMinWidth = Number.parseFloat(this._config?.styles?.popup?.min_width || "220") || 220;
-    const popupMaxWidth =
-      Number.parseFloat(
-        this._config?.styles?.popup?.max_width || this._config?.styles?.popup?.min_width || "380",
-      ) || Math.max(popupMinWidth, 380);
-    const popupWidth = Math.min(
-      Math.max(popupMinWidth, popupMaxWidth),
-      Math.max(popupMinWidth, window.innerWidth - 24),
-    );
-    const itemSize = Number.parseFloat(this._config?.styles?.popup?.item_size || "48") || 48;
-    const itemGap = Number.parseFloat(this._config?.styles?.popup?.item_gap || "12") || 12;
-    const tileWidth = itemSize + 24;
-    const columns = Math.max(1, Math.min(4, Math.floor((popupWidth - 24 + itemGap) / (tileWidth + itemGap))));
-    const rows = Math.ceil(items.length / columns);
-    const estimatedHeight = Math.min(window.innerHeight - 48, rows * (itemSize + 42) + 24);
+    const popupMetrics = this._getPopupMetrics(route, items);
+    const popupWidth = popupMetrics.width;
+    const estimatedHeight = popupMetrics.estimatedHeight;
     const preferredGap = 12;
     let direction = this._config.layout.position === "top" ? "down" : "up";
     let left = anchorRect.left + anchorRect.width / 2 - popupWidth / 2;
@@ -767,11 +825,15 @@ class NodaliaNavigationBarCard extends HTMLElement {
     }
 
     this._popupState = {
+      columns: popupMetrics.columns,
       direction,
+      itemMinWidth: `${popupMetrics.itemMinWidth}px`,
+      layout: popupMetrics.layout,
       left: `${left}px`,
       top: `${top}px`,
       route,
       routeIndex,
+      width: `${popupWidth}px`,
     };
     this._render();
   }
@@ -955,10 +1017,19 @@ class NodaliaNavigationBarCard extends HTMLElement {
       .map((item, popupIndex) => {
         const isActive = this._isNavItemActive(item, currentPath);
         const badge = this._getBadge(item);
-        const hasLabel = Boolean(item.label);
+        const label = this._getRouteLabel(item);
+        const hasLabel = Boolean(label);
         const hasDescription = Boolean(item.description);
         const isIconOnly = !hasLabel && !hasDescription;
-        const ariaLabel = item.label || item.description || item.path || `Popup ${popupIndex + 1}`;
+        const ariaLabel = label || item.description || item.path || `Popup ${popupIndex + 1}`;
+        const itemStyle = [
+          item.background ? `--popup-route-background:${item.background};` : "",
+          item.color ? `--popup-route-color:${item.color};` : "",
+          item.active_color ? `--popup-route-active-color:${item.active_color};` : "",
+          item.active_background ? `--popup-route-active-background:${item.active_background};` : "",
+        ]
+          .filter(Boolean)
+          .join("");
 
         return `
           <button
@@ -966,6 +1037,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
             type="button"
             data-popup-route-index="${this._popupState.routeIndex}"
             data-popup-item-index="${popupIndex}"
+            style="${itemStyle}"
             aria-label="${escapeHtml(ariaLabel)}"
           >
             <span class="popup-item__icon-wrap">
@@ -985,7 +1057,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
                   <span class="popup-item__content">
                     ${
                       hasLabel
-                        ? `<span class="popup-item__label">${escapeHtml(item.label)}</span>`
+                        ? `<span class="popup-item__label">${escapeHtml(label)}</span>`
                         : ""
                     }
                     ${
@@ -1005,8 +1077,8 @@ class NodaliaNavigationBarCard extends HTMLElement {
     return `
       <div class="popup-backdrop" data-popup-close="true"></div>
       <div
-        class="popup-panel popup-panel--${this._popupState.direction}"
-        style="left:${this._popupState.left};top:${this._popupState.top};"
+        class="popup-panel popup-panel--${this._popupState.direction} popup-panel--layout-${this._popupState.layout || "auto"}"
+        style="left:${this._popupState.left};top:${this._popupState.top};width:${this._popupState.width};--popup-columns:${this._popupState.columns || 1};--popup-item-min:${this._popupState.itemMinWidth || `calc(${this._config.styles.popup.item_size} + 24px)`};"
       >
         <div class="popup-items">
           ${popupMarkup}
@@ -1147,6 +1219,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
     }
 
     const visibleRoutes = this._getVisibleRoutes();
+    const showRouteLabels = this._shouldShowRouteLabels(visibleRoutes);
     const visiblePlayers = this._getVisibleMediaPlayers();
     const currentPath = normalizePath(window.location.pathname) || "/";
     const isFixed = config.layout.fixed && !inEditMode;
@@ -1168,7 +1241,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
             .map((route, index) => {
               const isActive = this._isRouteActive(route, currentPath);
               const badge = this._getBadge(route);
-              const label = route.label || "";
+              const label = this._getRouteLabel(route);
               const routeStyle = [
                 route.background ? `--route-background:${route.background};` : "",
                 route.color ? `--route-color:${route.color};` : "",
@@ -1199,8 +1272,10 @@ class NodaliaNavigationBarCard extends HTMLElement {
                     }
                   </span>
                   ${
-                    config.show_labels && label
-                      ? `<span class="nav-label">${escapeHtml(label)}</span>`
+                    showRouteLabels
+                      ? label
+                        ? `<span class="nav-label">${escapeHtml(label)}</span>`
+                        : '<span class="nav-label nav-label--placeholder" aria-hidden="true">&nbsp;</span>'
                       : ""
                   }
                   ${
@@ -1295,16 +1370,16 @@ class NodaliaNavigationBarCard extends HTMLElement {
           color: var(--route-color);
           cursor: pointer;
           display: inline-flex;
-          flex: ${config.show_labels ? "1 1 0" : "0 0 auto"};
+          flex: ${showRouteLabels ? "1 1 0" : "0 0 auto"};
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          gap: ${config.show_labels ? config.styles.button.label_gap : "0px"};
-          min-width: ${config.show_labels ? "0" : config.styles.button.size};
+          gap: ${showRouteLabels ? config.styles.button.label_gap : "0px"};
+          min-width: ${showRouteLabels ? "0" : config.styles.button.size};
           min-height: ${config.styles.button.size};
           padding: 0;
           position: relative;
-          width: ${config.show_labels ? "auto" : config.styles.button.size};
+          width: ${showRouteLabels ? "auto" : config.styles.button.size};
           transition: background 160ms ease, color 160ms ease;
         }
 
@@ -1372,9 +1447,17 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .nav-label {
           color: ${config.styles.button.label_color};
+          display: block;
           font-size: ${config.styles.button.label_size};
           line-height: 1.2;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
           white-space: nowrap;
+        }
+
+        .nav-label--placeholder {
+          visibility: hidden;
         }
 
         .nav-item.active .nav-label {
@@ -1429,6 +1512,8 @@ class NodaliaNavigationBarCard extends HTMLElement {
           border: ${config.styles.popup.border};
           border-radius: ${config.styles.popup.border_radius};
           box-shadow: ${config.styles.popup.box_shadow};
+          --popup-columns: 1;
+          --popup-item-min: calc(${config.styles.popup.item_size} + 24px);
           max-height: calc(100vh - 24px);
           min-width: min(${config.styles.popup.min_width}, calc(100vw - 24px));
           overflow: auto;
@@ -1444,18 +1529,33 @@ class NodaliaNavigationBarCard extends HTMLElement {
         }
 
         .popup-items {
-          align-items: start;
+          align-items: stretch;
           display: grid;
           gap: ${config.styles.popup.item_gap};
-          grid-template-columns: repeat(auto-fit, minmax(calc(${config.styles.popup.item_size} + 24px), 1fr));
+          grid-template-columns: repeat(var(--popup-columns), minmax(0, 1fr));
+          justify-items: stretch;
+        }
+
+        .popup-panel--layout-vertical .popup-items {
+          grid-template-columns: 1fr;
+        }
+
+        .popup-panel--layout-horizontal .popup-items,
+        .popup-panel--layout-auto .popup-items {
+          grid-template-columns: repeat(var(--popup-columns), minmax(var(--popup-item-min), 1fr));
         }
 
         .popup-item {
+          --popup-route-background: ${config.styles.button.background};
+          --popup-route-color: ${config.styles.button.color};
+          --popup-route-active-color: ${config.styles.button.active_color};
+          --popup-route-active-background: ${config.styles.button.active_background};
           appearance: none;
-          background: transparent;
+          align-items: center;
+          background: rgba(255, 255, 255, 0.015);
           border: 0;
           border-radius: 20px;
-          color: var(--primary-text-color);
+          color: var(--popup-route-color);
           cursor: pointer;
           display: flex;
           flex-direction: column;
@@ -1479,14 +1579,17 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .popup-item.active {
           background: rgba(var(--rgb-primary-color), 0.12);
-          color: ${config.styles.button.active_color};
+          color: var(--popup-route-active-color);
         }
 
         .popup-item__icon-wrap {
           align-items: center;
-          background: rgba(255, 255, 255, 0.04);
-          border-radius: 18px;
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+          background: var(--popup-route-background);
+          border: 1px solid rgba(255, 255, 255, 0.02);
+          border-radius: ${config.styles.button.border_radius};
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.03),
+            0 8px 18px rgba(0, 0, 0, 0.12);
           display: flex;
           height: ${config.styles.popup.item_size};
           justify-content: center;
@@ -1496,7 +1599,11 @@ class NodaliaNavigationBarCard extends HTMLElement {
         }
 
         .popup-item.active .popup-item__icon-wrap {
-          background: ${config.styles.button.active_background};
+          background: var(--popup-route-active-background);
+        }
+
+        .popup-panel--layout-vertical .popup-item {
+          min-height: calc(${config.styles.popup.item_size} + 24px);
         }
 
         .popup-item__content {
@@ -2287,6 +2394,14 @@ class NodaliaNavigationBarEditor extends HTMLElement {
               placeholder="id1, id2"
             />
           </label>
+          <label>
+            <span>Layout popup</span>
+            <select data-route-index="${index}" data-route-field="popup_layout" data-optional="true">
+              <option value="" ${!route.popup_layout ? "selected" : ""}>Auto</option>
+              <option value="vertical" ${route.popup_layout === "vertical" ? "selected" : ""}>Vertical</option>
+              <option value="horizontal" ${route.popup_layout === "horizontal" ? "selected" : ""}>Horizontal</option>
+            </select>
+          </label>
           <label class="checkbox">
             <input
               type="checkbox"
@@ -2387,7 +2502,8 @@ class NodaliaNavigationBarEditor extends HTMLElement {
           font-weight: 500;
         }
 
-        input {
+        input,
+        select {
           background: var(--secondary-background-color);
           border: 1px solid var(--divider-color);
           border-radius: 10px;
@@ -2509,6 +2625,14 @@ class NodaliaNavigationBarEditor extends HTMLElement {
                 data-optional="true"
                 value="${escapeHtml(config.styles.popup.item_gap || "")}"
               />
+            </label>
+            <label>
+              <span>Layout popup por defecto</span>
+              <select data-field="styles.popup.layout" data-optional="true">
+                <option value="" ${!config.styles.popup.layout || config.styles.popup.layout === "auto" ? "selected" : ""}>Auto</option>
+                <option value="vertical" ${config.styles.popup.layout === "vertical" ? "selected" : ""}>Vertical</option>
+                <option value="horizontal" ${config.styles.popup.layout === "horizontal" ? "selected" : ""}>Horizontal</option>
+              </select>
             </label>
             <label class="checkbox">
               <input type="checkbox" data-field="show_labels" ${config.show_labels ? "checked" : ""} />

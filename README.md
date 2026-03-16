@@ -83,7 +83,7 @@ routes:
 ### Nivel superior
 
 - `title`: texto opcional encima de la barra.
-- `show_labels`: muestra texto bajo cada icono.
+- `show_labels`: muestra texto bajo cada icono si las rutas visibles tienen `label`.
 - `routes`: array de elementos.
 - `media_player`: widget opcional de reproduccion.
 - `layout`: comportamiento general.
@@ -144,6 +144,7 @@ styles:
     border: 1px solid var(--divider-color)
     border_radius: 24px
     box_shadow: 0 18px 40px rgba(0, 0, 0, 0.22)
+    layout: auto
     padding: 12px
     min_width: 220px
     max_width: 380px
@@ -206,6 +207,7 @@ routes:
 - `users`
 - `hidden`
 - `popup`
+- `popup_layout`: `auto`, `vertical` o `horizontal`
 - `badge`
 - `tap_action`
 - `color`, `active_color`, `active_background`
@@ -213,12 +215,13 @@ routes:
 ## Popup por ruta
 
 Si una ruta tiene `popup`, la tarjeta abrira el menu automaticamente al pulsarla. Tambien puedes forzarlo con `tap_action.action: open-popup`.
-El popup ahora se muestra como rejilla compacta para que quepan mas accesos en pantalla y cada item puede tener solo icono, icono con etiqueta o icono con etiqueta y descripcion.
+El popup puede mostrarse en `auto`, `vertical` u `horizontal`. `auto` intenta decidir una distribucion mas agradable segun el numero de items, `vertical` usa una sola columna y `horizontal` reparte los items en varias columnas.
 
 ```yaml
 routes:
   - icon: mdi:dots-horizontal
     label: Mas
+    popup_layout: vertical
     popup:
       - icon: mdi:account
         path: /profile
@@ -235,7 +238,7 @@ routes:
 ```
 
 Cada item del popup admite practicamente los mismos campos que una ruta normal: `icon`, `image`, `label`, `description`, `path`, `active_paths`, `users`, `badge` y `tap_action`.
-`label` es opcional, asi que puedes dejarlo vacio desde el editor visual para crear accesos solo con icono. Tambien puedes ajustar `styles.popup.max_width`, `styles.popup.item_size` y `styles.popup.item_gap` desde el editor para cambiar cuanta informacion entra en el popup.
+`label` es opcional, asi que puedes dejarlo vacio desde el editor visual para crear accesos solo con icono. Tambien puedes ajustar `styles.popup.layout`, `styles.popup.max_width`, `styles.popup.item_size` y `styles.popup.item_gap` desde el editor, y si un boton concreto necesita un comportamiento distinto puedes usar `popup_layout` en esa ruta.
 
 ## Media player integrado
 
