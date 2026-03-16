@@ -57,6 +57,7 @@ const DEFAULT_CONFIG = {
       border_radius: "24px",
       box_shadow: "0 18px 40px rgba(0, 0, 0, 0.22)",
       layout: "auto",
+      label_size: "13px",
       padding: "12px",
       min_width: "220px",
       max_width: "380px",
@@ -1360,17 +1361,17 @@ class NodaliaNavigationBarCard extends HTMLElement {
                           >${escapeHtml(badge.content)}</span>`
                         : ""
                     }
+                    ${
+                      hasPopup
+                        ? `<span class="nav-popup-indicator" aria-hidden="true"></span>`
+                        : ""
+                    }
                   </span>
                   ${
                     showRouteLabels
                       ? label
                         ? `<span class="nav-label">${escapeHtml(label)}</span>`
                         : '<span class="nav-label nav-label--placeholder" aria-hidden="true">&nbsp;</span>'
-                      : ""
-                  }
-                  ${
-                    hasPopup
-                      ? `<span class="nav-popup-indicator" aria-hidden="true"></span>`
                       : ""
                   }
                 </button>
@@ -1445,6 +1446,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
           justify-content: ${config.styles.bar.justify_content};
           gap: ${config.styles.bar.gap};
           flex-wrap: nowrap;
+          transform: translateY(${showRouteLabels ? "0px" : "4px"});
           width: 100%;
         }
 
@@ -1557,10 +1559,12 @@ class NodaliaNavigationBarCard extends HTMLElement {
         .nav-popup-indicator {
           background: currentColor;
           border-radius: 999px;
-          bottom: 2px;
+          bottom: 5px;
           height: 4px;
+          left: 50%;
           opacity: 0.75;
           position: absolute;
+          transform: translateX(-50%);
           width: 4px;
         }
 
@@ -1628,6 +1632,10 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .popup-panel--layout-vertical .popup-items {
           grid-template-columns: 1fr;
+        }
+
+        .popup-panel--layout-vertical.popup-panel--icon-only {
+          min-width: 0;
         }
 
         .popup-panel--layout-horizontal .popup-items,
@@ -1736,7 +1744,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .popup-item__label {
           color: inherit;
-          font-size: 13px;
+          font-size: ${config.styles.popup.label_size};
           font-weight: 600;
           line-height: 1.2;
           text-align: center;
@@ -2750,6 +2758,10 @@ class NodaliaNavigationBarEditor extends HTMLElement {
               <input type="text" data-field="styles.button.size" value="${escapeHtml(config.styles.button.size || "")}" />
             </label>
             <label>
+              <span>Tamano etiqueta navbar</span>
+              <input type="text" data-field="styles.button.label_size" value="${escapeHtml(config.styles.button.label_size || "")}" />
+            </label>
+            <label>
               <span>Ancho popup</span>
               <input
                 type="text"
@@ -2765,6 +2777,15 @@ class NodaliaNavigationBarEditor extends HTMLElement {
                 data-field="styles.popup.item_size"
                 data-optional="true"
                 value="${escapeHtml(config.styles.popup.item_size || "")}"
+              />
+            </label>
+            <label>
+              <span>Tamano etiqueta popup</span>
+              <input
+                type="text"
+                data-field="styles.popup.label_size"
+                data-optional="true"
+                value="${escapeHtml(config.styles.popup.label_size || "")}"
               />
             </label>
             <label>

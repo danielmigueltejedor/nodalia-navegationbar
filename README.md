@@ -145,6 +145,7 @@ styles:
     border_radius: 24px
     box_shadow: 0 18px 40px rgba(0, 0, 0, 0.22)
     layout: auto
+    label_size: 13px
     padding: 12px
     min_width: 220px
     max_width: 380px
