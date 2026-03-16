@@ -702,7 +702,11 @@ class NodaliaNavigationBarCard extends HTMLElement {
     const rows = Math.max(1, Math.ceil((items.length || 1) / columns));
     const widthFromColumns =
       columns * itemMinWidth + Math.max(0, columns - 1) * itemGap + panelPadding * 2;
-    const width = clamp(widthFromColumns, minWidth, maxWidth);
+    const minimumWidth = Math.min(
+      maxWidth,
+      !hasText && columns === 1 ? Math.max(itemSize + panelPadding * 2 + 20, 88) : minWidth,
+    );
+    const width = clamp(widthFromColumns, minimumWidth, maxWidth);
     const rowHeight = itemSize + (hasText ? 56 : 26);
     const viewportHeight = Math.max(160, (window.innerHeight || 320) - 48);
     const estimatedHeight = Math.min(
@@ -713,6 +717,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
     return {
       columns,
       estimatedHeight,
+      hasText,
       itemMinWidth,
       layout,
       width,
@@ -1096,6 +1101,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
       this._popupState = null;
       return "";
     }
+    const popupHasText = popupItems.some(item => Boolean(this._getRouteLabel(item) || item.description));
 
     const popupMarkup = popupItems
       .map((item, popupIndex) => {
@@ -1161,7 +1167,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
     return `
       <div class="popup-backdrop" data-popup-close="true"></div>
       <div
-        class="popup-panel popup-panel--${this._popupState.direction} popup-panel--layout-${this._popupState.layout || "auto"}"
+        class="popup-panel popup-panel--${this._popupState.direction} popup-panel--layout-${this._popupState.layout || "auto"} ${popupHasText ? "popup-panel--with-text" : "popup-panel--icon-only"}"
         style="left:${this._popupState.left};top:${this._popupState.top};width:${this._popupState.width};--popup-columns:${this._popupState.columns || 1};--popup-item-min:${this._popupState.itemMinWidth || `calc(${this._config.styles.popup.item_size} + 24px)`};"
       >
         <div class="popup-items">
@@ -1675,11 +1681,11 @@ class NodaliaNavigationBarCard extends HTMLElement {
             inset 0 1px 0 rgba(255, 255, 255, 0.03),
             0 8px 18px rgba(0, 0, 0, 0.12);
           display: flex;
-          height: ${config.styles.popup.item_size};
+          height: max(${config.styles.popup.item_size}, calc(${config.styles.button.icon_size} + 14px));
           justify-content: center;
           line-height: 0;
           position: relative;
-          width: ${config.styles.popup.item_size};
+          width: max(${config.styles.popup.item_size}, calc(${config.styles.button.icon_size} + 14px));
         }
 
         .popup-item.active .popup-item__icon-wrap {
@@ -1702,6 +1708,22 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .popup-panel--layout-vertical .popup-item {
           min-height: calc(${config.styles.popup.item_size} + 24px);
+        }
+
+        .popup-panel--layout-vertical.popup-panel--icon-only .popup-items {
+          justify-items: center;
+        }
+
+        .popup-panel--layout-vertical.popup-panel--icon-only .popup-item {
+          background: transparent;
+          min-height: auto;
+          padding: 4px 0;
+          width: auto;
+        }
+
+        .popup-panel--layout-vertical.popup-panel--icon-only .popup-item:hover,
+        .popup-panel--layout-vertical.popup-panel--icon-only .popup-item.active {
+          background: transparent;
         }
 
         .popup-item__content {
