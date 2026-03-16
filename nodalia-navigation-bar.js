@@ -256,6 +256,43 @@ function clamp(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), maximum);
 }
 
+function moveItem(array, fromIndex, toIndex) {
+  if (!Array.isArray(array)) {
+    return array;
+  }
+
+  if (
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= array.length ||
+    toIndex >= array.length ||
+    fromIndex === toIndex
+  ) {
+    return array;
+  }
+
+  const [item] = array.splice(fromIndex, 1);
+  array.splice(toIndex, 0, item);
+  return array;
+}
+
+function formatDuration(totalSeconds) {
+  const safeSeconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const seconds = safeSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function normalizeTextKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function parsePrimitiveValue(value) {
   if (value === "true") {
     return true;
@@ -342,6 +379,8 @@ class NodaliaNavigationBarCard extends HTMLElement {
     this._popupState = null;
     this._popupPositionFrame = null;
     this._activeMediaPlayerIndex = 0;
+    this._mediaPlayerExpanded = true;
+    this._mediaTicker = null;
     this._onResize = () => {
       this._closePopup(false);
       this._render();
@@ -376,6 +415,10 @@ class NodaliaNavigationBarCard extends HTMLElement {
     if (this._popupPositionFrame) {
       cancelAnimationFrame(this._popupPositionFrame);
       this._popupPositionFrame = null;
+    }
+    if (this._mediaTicker) {
+      window.clearInterval(this._mediaTicker);
+      this._mediaTicker = null;
     }
   }
 
@@ -416,6 +459,18 @@ class NodaliaNavigationBarCard extends HTMLElement {
         mediaControlButton.dataset.mediaControl,
         mediaControlButton.dataset.entity,
       );
+      return;
+    }
+
+    const mediaToggleButton = event
+      .composedPath()
+      .find(node => node instanceof HTMLElement && node.dataset?.mediaToggle);
+
+    if (mediaToggleButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      this._mediaPlayerExpanded = mediaToggleButton.dataset.mediaToggle === "expand";
+      this._render();
       return;
     }
 
@@ -928,9 +983,13 @@ class NodaliaNavigationBarCard extends HTMLElement {
     this._render();
   }
 
-  _getReservedHeight(showMediaPlayer) {
+  _getReservedHeight(showMediaPlayer, showMediaPlayerToggle = false) {
     const baseHeight = this._config.layout.reserve_height;
     if (!showMediaPlayer) {
+      if (showMediaPlayerToggle) {
+        return `calc(${baseHeight} + ${this._config.layout.stack_gap} + 48px)`;
+      }
+
       return baseHeight;
     }
 
@@ -1002,11 +1061,124 @@ class NodaliaNavigationBarCard extends HTMLElement {
       return player.subtitle;
     }
 
-    return state.attributes.media_artist || state.attributes.app_name || state.state;
+    return (
+      state.attributes.media_artist ||
+      state.attributes.media_series_title ||
+      state.attributes.media_album_name ||
+      state.attributes.app_name ||
+      this._getMediaPlayerStateLabel(state.state)
+    );
   }
 
   _getMediaPlayerArtwork(player, state) {
     return player.image || state.attributes.entity_picture || null;
+  }
+
+  _getMediaPlayerStateLabel(stateValue) {
+    switch (stateValue) {
+      case "playing":
+        return "Reproduciendo";
+      case "paused":
+        return "En pausa";
+      case "buffering":
+        return "Cargando";
+      case "idle":
+        return "En espera";
+      case "off":
+        return "Apagado";
+      case "standby":
+        return "Standby";
+      case "unavailable":
+        return "No disponible";
+      default:
+        return stateValue || "Desconocido";
+    }
+  }
+
+  _getMediaPlayerProgress(state) {
+    const duration = Number(state?.attributes?.media_duration || 0);
+
+    if (!(duration > 0)) {
+      return null;
+    }
+
+    let position = Number(state.attributes.media_position || 0);
+    const updatedAt = state.attributes.media_position_updated_at;
+
+    if (state.state === "playing" && updatedAt) {
+      const updatedAtTime = new Date(updatedAt).getTime();
+
+      if (!Number.isNaN(updatedAtTime)) {
+        position += Math.max(0, (Date.now() - updatedAtTime) / 1000);
+      }
+    }
+
+    position = clamp(position, 0, duration);
+
+    return {
+      duration,
+      percent: clamp((position / duration) * 100, 0, 100),
+      position,
+    };
+  }
+
+  _getMediaPlayerChips(player, state, progress, title, subtitle) {
+    const chips = [];
+    const seen = new Set();
+    const subtitleKey = normalizeTextKey(subtitle);
+    const titleKey = normalizeTextKey(title);
+
+    const addChip = (label, tone = "default") => {
+      const text = String(label || "").trim();
+
+      if (!text) {
+        return;
+      }
+
+      const key = normalizeTextKey(text);
+      if (!key || key === titleKey || key === subtitleKey || seen.has(key)) {
+        return;
+      }
+
+      seen.add(key);
+      chips.push({ label: text, tone });
+    };
+
+    addChip(this._getMediaPlayerStateLabel(state.state), state.state || "default");
+    addChip(state.attributes.friendly_name || player.entity, "device");
+    addChip(
+      state.attributes.source ||
+        state.attributes.app_name ||
+        state.attributes.media_album_name ||
+        state.attributes.media_channel,
+      "source",
+    );
+
+    if (progress) {
+      addChip(`${formatDuration(progress.position)} / ${formatDuration(progress.duration)}`, "time");
+    }
+
+    return chips.slice(0, 4);
+  }
+
+  _syncMediaTicker(visiblePlayers) {
+    const shouldTick = visiblePlayers.some(player => {
+      const state = this._hass?.states?.[player.entity];
+      const progress = state ? this._getMediaPlayerProgress(state) : null;
+      return state?.state === "playing" && progress;
+    });
+
+    if (shouldTick && !this._mediaTicker) {
+      this._mediaTicker = window.setInterval(() => {
+        this._render();
+      }, 1000);
+      return;
+    }
+
+    if (!shouldTick && this._mediaTicker) {
+      window.clearInterval(this._mediaTicker);
+      this._mediaTicker = null;
+    }
   }
 
   _handleMediaControl(control, entityId) {
@@ -1200,10 +1372,12 @@ class NodaliaNavigationBarCard extends HTMLElement {
     const artwork = this._getMediaPlayerArtwork(player, state);
     const title = this._getMediaPlayerTitle(player, state);
     const subtitle = this._getMediaPlayerSubtitle(player, state);
-    const duration = Number(state.attributes.media_duration || 0);
-    const position = Number(state.attributes.media_position || 0);
-    const progress = duration > 0 ? clamp((position / duration) * 100, 0, 100) : null;
+    const subtitleMarkup = subtitle && normalizeTextKey(subtitle) !== normalizeTextKey(title)
+      ? `<div class="media-player__subtitle">${escapeHtml(subtitle)}</div>`
+      : "";
+    const progress = this._getMediaPlayerProgress(state);
     const albumCoverBackground = this._config.media_player.album_cover_background && artwork;
+    const chips = this._getMediaPlayerChips(player, state, progress, title, subtitle);
     const dotsMarkup =
       visiblePlayers.length > 1
         ? `
@@ -1223,6 +1397,31 @@ class NodaliaNavigationBarCard extends HTMLElement {
           </div>
         `
         : "";
+    const chipsMarkup = chips.length
+      ? `
+        <div class="media-player__chips">
+          ${chips
+            .map(
+              chip => `
+                <span class="media-player__chip media-player__chip--${escapeHtml(chip.tone)}">
+                  ${escapeHtml(chip.label)}
+                </span>
+              `,
+            )
+            .join("")}
+        </div>
+      `
+      : "";
+    const collapseMarkup = `
+      <button
+        type="button"
+        class="media-player__collapse"
+        data-media-toggle="collapse"
+        aria-label="Ocultar reproductor"
+      >
+        <ha-icon icon="mdi:chevron-down"></ha-icon>
+      </button>
+    `;
 
     return `
       <div
@@ -1238,54 +1437,109 @@ class NodaliaNavigationBarCard extends HTMLElement {
           progress !== null
             ? `
               <div class="media-player__progress">
-                <span class="media-player__progress-fill" style="width:${progress}%"></span>
+                <span class="media-player__progress-fill" style="width:${progress.percent}%"></span>
               </div>
             `
             : ""
         }
-        <div class="media-player__main">
-          <div class="media-player__artwork">
+        <div class="media-player__content">
+          <div class="media-player__hero">
+            <div class="media-player__artwork">
+              ${
+                artwork
+                  ? `<img src="${escapeHtml(artwork)}" alt="${escapeHtml(title)}" />`
+                  : `<ha-icon icon="${escapeHtml(player.icon || "mdi:music")}"></ha-icon>`
+              }
+            </div>
+            <div class="media-player__meta">
+              <div class="media-player__title">${escapeHtml(title)}</div>
+              ${subtitleMarkup}
+            </div>
+            <div class="media-player__hero-side">
+              ${dotsMarkup}
+              ${collapseMarkup}
+            </div>
+          </div>
+          <div class="media-player__footer">
+            <div class="media-player__transport">
+              <button
+                type="button"
+                class="media-player__control"
+                data-media-control="previous"
+                data-entity="${escapeHtml(player.entity)}"
+                aria-label="Anterior"
+              >
+                <ha-icon icon="mdi:skip-previous"></ha-icon>
+              </button>
+              <button
+                type="button"
+                class="media-player__control media-player__control--primary"
+                data-media-control="play-pause"
+                data-entity="${escapeHtml(player.entity)}"
+                aria-label="Play o pausa"
+              >
+                <ha-icon icon="${escapeHtml(state.state === "playing" ? "mdi:pause" : "mdi:play")}"></ha-icon>
+              </button>
+              <button
+                type="button"
+                class="media-player__control"
+                data-media-control="next"
+                data-entity="${escapeHtml(player.entity)}"
+                aria-label="Siguiente"
+              >
+                <ha-icon icon="mdi:skip-next"></ha-icon>
+              </button>
+            </div>
+            ${chipsMarkup}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderMediaPlayerToggle(visiblePlayers) {
+    if (!visiblePlayers.length) {
+      return "";
+    }
+
+    this._activeMediaPlayerIndex = clamp(
+      this._activeMediaPlayerIndex,
+      0,
+      visiblePlayers.length - 1,
+    );
+
+    const player = visiblePlayers[this._activeMediaPlayerIndex];
+    const state = this._hass?.states?.[player.entity];
+
+    if (!state) {
+      return "";
+    }
+
+    const artwork = this._getMediaPlayerArtwork(player, state);
+    const title = this._getMediaPlayerTitle(player, state);
+    const subtitle = this._getMediaPlayerStateLabel(state.state);
+
+    return `
+      <div class="media-player-toggle-wrap">
+        <button
+          type="button"
+          class="media-player-toggle"
+          data-media-toggle="expand"
+          aria-label="Mostrar reproductor"
+        >
+          <span class="media-player-toggle__artwork">
             ${
               artwork
                 ? `<img src="${escapeHtml(artwork)}" alt="${escapeHtml(title)}" />`
                 : `<ha-icon icon="${escapeHtml(player.icon || "mdi:music")}"></ha-icon>`
             }
-          </div>
-          <div class="media-player__meta">
-            <div class="media-player__title">${escapeHtml(title)}</div>
-            <div class="media-player__subtitle">${escapeHtml(subtitle)}</div>
-          </div>
-          <div class="media-player__controls">
-            <button
-              type="button"
-              class="media-player__control"
-              data-media-control="previous"
-              data-entity="${escapeHtml(player.entity)}"
-              aria-label="Anterior"
-            >
-              <ha-icon icon="mdi:skip-previous"></ha-icon>
-            </button>
-            <button
-              type="button"
-              class="media-player__control media-player__control--primary"
-              data-media-control="play-pause"
-              data-entity="${escapeHtml(player.entity)}"
-              aria-label="Play o pausa"
-            >
-              <ha-icon icon="${escapeHtml(state.state === "playing" ? "mdi:pause" : "mdi:play")}"></ha-icon>
-            </button>
-            <button
-              type="button"
-              class="media-player__control"
-              data-media-control="next"
-              data-entity="${escapeHtml(player.entity)}"
-              aria-label="Siguiente"
-            >
-              <ha-icon icon="mdi:skip-next"></ha-icon>
-            </button>
-          </div>
-        </div>
-        ${dotsMarkup}
+          </span>
+          <span class="media-player-toggle__meta">
+            <span class="media-player-toggle__eyebrow">${escapeHtml(subtitle)}</span>
+            <span class="media-player-toggle__title">${escapeHtml(title)}</span>
+          </span>
+          <ha-icon class="media-player-toggle__icon" icon="mdi:chevron-up"></ha-icon>
+        </button>
       </div>
     `;
   }
@@ -1313,18 +1567,23 @@ class NodaliaNavigationBarCard extends HTMLElement {
     const visibleRoutes = this._getVisibleRoutes();
     const showRouteLabels = this._shouldShowRouteLabels(visibleRoutes);
     const visiblePlayers = this._getVisibleMediaPlayers();
+    const hasVisiblePlayers = visiblePlayers.length > 0;
+    const showMediaPlayerCard = hasVisiblePlayers && (inEditMode || this._mediaPlayerExpanded !== false);
+    const showMediaPlayerToggle = hasVisiblePlayers && !showMediaPlayerCard;
     const currentPath = normalizePath(window.location.pathname) || "/";
     const isFixed = config.layout.fixed && !inEditMode;
     const spacerHeight = isFixed && config.layout.reserve_space
-      ? this._getReservedHeight(visiblePlayers.length > 0)
+      ? this._getReservedHeight(showMediaPlayerCard, showMediaPlayerToggle)
       : "0px";
     const titleMarkup = config.title
       ? `<div class="navbar-title">${escapeHtml(config.title)}</div>`
       : "";
 
     this._renderedRoutes = visibleRoutes;
+    this._syncMediaTicker(showMediaPlayerCard ? visiblePlayers : []);
 
-    const mediaPlayerMarkup = this._renderMediaPlayer(visiblePlayers);
+    const mediaPlayerMarkup = showMediaPlayerCard ? this._renderMediaPlayer(visiblePlayers) : "";
+    const mediaPlayerToggleMarkup = showMediaPlayerToggle ? this._renderMediaPlayerToggle(visiblePlayers) : "";
     const popupMarkup = this._renderPopup(currentPath);
 
     const routesMarkup =
@@ -1420,6 +1679,11 @@ class NodaliaNavigationBarCard extends HTMLElement {
         .dock-stack {
           display: grid;
           gap: ${config.layout.stack_gap};
+        }
+
+        .media-player-toggle-wrap {
+          display: flex;
+          justify-content: flex-end;
         }
 
         ha-card {
@@ -1781,41 +2045,54 @@ class NodaliaNavigationBarCard extends HTMLElement {
           border-radius: ${config.styles.media_player.border_radius};
           box-shadow: ${config.styles.media_player.box_shadow};
           cursor: pointer;
+          isolation: isolate;
           min-height: ${config.styles.media_player.min_height};
           overflow: hidden;
           padding: ${config.styles.media_player.padding};
           position: relative;
         }
 
+        .media-player-card::before {
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0));
+          content: "";
+          inset: 0;
+          pointer-events: none;
+          position: absolute;
+          z-index: 0;
+        }
+
         .media-player-card.has-album-background::after {
           background: linear-gradient(
-            135deg,
+            180deg,
+            rgba(0, 0, 0, 0.08),
             ${config.styles.media_player.overlay_color},
-            rgba(0, 0, 0, 0.08)
+            rgba(0, 0, 0, 0.16)
           );
           content: "";
           inset: 0;
           position: absolute;
+          z-index: 0;
         }
 
         .media-player__album-bg {
           background-position: center;
           background-size: cover;
-          filter: blur(22px);
-          inset: -16px;
-          opacity: 0.7;
+          filter: blur(30px) saturate(0.82);
+          inset: -24px;
+          opacity: 0.38;
           position: absolute;
-          transform: scale(1.08);
+          transform: scale(1.14);
+          z-index: -1;
         }
 
         .media-player__progress {
           background: ${config.styles.media_player.progress_background};
           border-radius: 999px;
-          height: 4px;
+          bottom: 10px;
+          height: 6px;
           inset-inline: 14px;
           overflow: hidden;
           position: absolute;
-          top: 10px;
           z-index: 1;
         }
 
@@ -1825,23 +2102,39 @@ class NodaliaNavigationBarCard extends HTMLElement {
           height: 100%;
         }
 
-        .media-player__main,
+        .media-player__content,
         .media-player__dots {
           position: relative;
           z-index: 1;
         }
 
-        .media-player__main {
+        .media-player__content {
+          display: grid;
+          gap: 14px;
+          padding-bottom: 12px;
+        }
+
+        .media-player__hero {
           align-items: center;
           display: grid;
-          gap: 12px;
+          gap: 14px;
           grid-template-columns: ${config.styles.media_player.artwork_size} minmax(0, 1fr) auto;
+        }
+
+        .media-player__hero-side {
+          align-items: center;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          justify-content: center;
         }
 
         .media-player__artwork {
           align-items: center;
-          background: rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.08);
           border-radius: 22px;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 24px rgba(0, 0, 0, 0.18);
           display: flex;
           height: ${config.styles.media_player.artwork_size};
           justify-content: center;
@@ -1862,6 +2155,8 @@ class NodaliaNavigationBarCard extends HTMLElement {
         }
 
         .media-player__meta {
+          display: grid;
+          gap: 4px;
           min-width: 0;
         }
 
@@ -1881,32 +2176,97 @@ class NodaliaNavigationBarCard extends HTMLElement {
         .media-player__subtitle {
           color: var(--secondary-text-color);
           font-size: ${config.styles.media_player.subtitle_size};
-          margin-top: 4px;
         }
 
-        .media-player__controls {
+        .media-player__footer {
+          align-items: flex-end;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          justify-content: space-between;
+        }
+
+        .media-player__transport {
           align-items: center;
           display: inline-flex;
+          flex: 0 0 auto;
           gap: 8px;
+          padding: 6px;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 999px;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+
+        .media-player__chips {
+          align-items: center;
+          display: flex;
+          flex: 1 1 220px;
+          flex-wrap: wrap;
+          gap: 8px;
+          justify-content: flex-end;
+          min-width: 0;
+        }
+
+        .media-player__chip {
+          align-items: center;
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 999px;
+          color: var(--secondary-text-color);
+          display: inline-flex;
+          font-size: ${config.styles.media_player.subtitle_size};
+          font-weight: 600;
+          line-height: 1;
+          max-width: 100%;
+          min-height: 28px;
+          overflow: hidden;
+          padding: 0 10px;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .media-player__chip--playing {
+          background: rgba(var(--rgb-primary-color), 0.16);
+          border-color: rgba(var(--rgb-primary-color), 0.22);
+          color: ${config.styles.button.active_color};
+        }
+
+        .media-player__chip--paused,
+        .media-player__chip--buffering {
+          color: var(--primary-text-color);
+        }
+
+        .media-player__chip--device,
+        .media-player__chip--source {
+          color: var(--primary-text-color);
+        }
+
+        .media-player__chip--time {
+          font-variant-numeric: tabular-nums;
         }
 
         .media-player__control {
           align-items: center;
           appearance: none;
-          background: rgba(var(--rgb-primary-color), 0.1);
-          border: 0;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.06);
           border-radius: 999px;
           color: var(--primary-text-color);
           cursor: pointer;
           display: inline-flex;
           height: ${config.styles.media_player.control_size};
           justify-content: center;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
           width: ${config.styles.media_player.control_size};
         }
 
         .media-player__control--primary {
           background: rgba(var(--rgb-primary-color), 0.18);
+          border-color: rgba(var(--rgb-primary-color), 0.24);
           color: ${config.styles.button.active_color};
+          height: calc(${config.styles.media_player.control_size} + 6px);
+          width: calc(${config.styles.media_player.control_size} + 6px);
         }
 
         .media-player__control ha-icon {
@@ -1914,15 +2274,34 @@ class NodaliaNavigationBarCard extends HTMLElement {
         }
 
         .media-player__dots {
-          display: flex;
-          gap: 8px;
+          align-content: center;
+          display: grid;
+          gap: 7px;
+          justify-items: center;
+        }
+
+        .media-player__collapse {
+          align-items: center;
+          appearance: none;
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 999px;
+          color: var(--primary-text-color);
+          cursor: pointer;
+          display: inline-flex;
+          height: 28px;
           justify-content: center;
-          margin-top: 12px;
+          padding: 0;
+          width: 28px;
+        }
+
+        .media-player__collapse ha-icon {
+          font-size: 18px;
         }
 
         .media-player__dot {
           appearance: none;
-          background: rgba(var(--rgb-primary-color), 0.18);
+          background: rgba(255, 255, 255, 0.14);
           border: 0;
           border-radius: 999px;
           cursor: pointer;
@@ -1933,13 +2312,117 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .media-player__dot.active {
           background: ${config.styles.button.active_color};
-          transform: scale(1.1);
+          width: calc(${config.styles.media_player.dot_size} + 10px);
+        }
+
+        .media-player-toggle {
+          align-items: center;
+          appearance: none;
+          background: ${config.styles.media_player.background};
+          border: ${config.styles.media_player.border};
+          border-radius: 999px;
+          box-shadow: ${config.styles.media_player.box_shadow};
+          color: var(--primary-text-color);
+          cursor: pointer;
+          display: inline-flex;
+          gap: 10px;
+          max-width: min(100%, 280px);
+          min-height: 44px;
+          padding: 6px 10px 6px 6px;
+        }
+
+        .media-player-toggle__artwork {
+          align-items: center;
+          background: rgba(255, 255, 255, 0.08);
+          border-radius: 999px;
+          display: inline-flex;
+          flex: 0 0 auto;
+          height: 32px;
+          justify-content: center;
+          overflow: hidden;
+          width: 32px;
+        }
+
+        .media-player-toggle__artwork img,
+        .media-player-toggle__artwork ha-icon {
+          height: 100%;
+          object-fit: cover;
+          width: 100%;
+        }
+
+        .media-player-toggle__artwork ha-icon {
+          font-size: 18px;
+          padding: 7px;
+        }
+
+        .media-player-toggle__meta {
+          display: grid;
+          flex: 1 1 auto;
+          gap: 2px;
+          min-width: 0;
+          text-align: left;
+        }
+
+        .media-player-toggle__eyebrow,
+        .media-player-toggle__title {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .media-player-toggle__eyebrow {
+          color: var(--secondary-text-color);
+          font-size: 11px;
+          font-weight: 600;
+        }
+
+        .media-player-toggle__title {
+          color: var(--primary-text-color);
+          font-size: 13px;
+          font-weight: 700;
+        }
+
+        .media-player-toggle__icon {
+          color: var(--secondary-text-color);
+          flex: 0 0 auto;
+          font-size: 18px;
+        }
+
+        @media (max-width: 520px) {
+          .media-player__footer {
+            align-items: stretch;
+          }
+
+          .media-player__chips {
+            justify-content: flex-start;
+          }
+        }
+
+        @media (max-width: 420px) {
+          .media-player__hero {
+            grid-template-columns: ${config.styles.media_player.artwork_size} minmax(0, 1fr);
+          }
+
+          .media-player__hero-side {
+            align-items: flex-start;
+            flex-direction: row;
+            gap: 8px;
+            grid-column: 1 / -1;
+            justify-content: space-between;
+          }
+
+          .media-player__dots {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-start;
+          }
         }
       </style>
       <div class="spacer" aria-hidden="true"></div>
       <div class="dock">
         <div class="dock-inner">
           <div class="dock-stack">
+            ${mediaPlayerToggleMarkup}
             ${mediaPlayerMarkup}
             <ha-card>
               ${titleMarkup}
@@ -2274,6 +2757,30 @@ class NodaliaNavigationBarEditor extends HTMLElement {
       return;
     }
 
+    if (actionButton.dataset.editorAction === "move-route-up") {
+      const index = Number(actionButton.dataset.routeIndex);
+
+      if (index <= 0 || index >= nextConfig.routes.length) {
+        return;
+      }
+
+      nextConfig.routes = moveItem(nextConfig.routes, index, index - 1);
+      this._emitConfig(nextConfig);
+      return;
+    }
+
+    if (actionButton.dataset.editorAction === "move-route-down") {
+      const index = Number(actionButton.dataset.routeIndex);
+
+      if (index < 0 || index >= nextConfig.routes.length - 1) {
+        return;
+      }
+
+      nextConfig.routes = moveItem(nextConfig.routes, index, index + 1);
+      this._emitConfig(nextConfig);
+      return;
+    }
+
     if (actionButton.dataset.editorAction === "add-popup-item") {
       const routeIndex = Number(actionButton.dataset.routeIndex);
       const route = nextConfig.routes[routeIndex];
@@ -2311,6 +2818,34 @@ class NodaliaNavigationBarEditor extends HTMLElement {
       return;
     }
 
+    if (actionButton.dataset.editorAction === "move-popup-item-up") {
+      const routeIndex = Number(actionButton.dataset.routeIndex);
+      const popupIndex = Number(actionButton.dataset.popupIndex);
+      const route = nextConfig.routes[routeIndex];
+
+      if (!route || !Array.isArray(route.popup) || popupIndex <= 0 || popupIndex >= route.popup.length) {
+        return;
+      }
+
+      route.popup = moveItem(route.popup, popupIndex, popupIndex - 1);
+      this._emitConfig(nextConfig);
+      return;
+    }
+
+    if (actionButton.dataset.editorAction === "move-popup-item-down") {
+      const routeIndex = Number(actionButton.dataset.routeIndex);
+      const popupIndex = Number(actionButton.dataset.popupIndex);
+      const route = nextConfig.routes[routeIndex];
+
+      if (!route || !Array.isArray(route.popup) || popupIndex < 0 || popupIndex >= route.popup.length - 1) {
+        return;
+      }
+
+      route.popup = moveItem(route.popup, popupIndex, popupIndex + 1);
+      this._emitConfig(nextConfig);
+      return;
+    }
+
     if (actionButton.dataset.editorAction === "add-player") {
       nextConfig.media_player.players.push({
         entity: "media_player.nuevo",
@@ -2326,20 +2861,42 @@ class NodaliaNavigationBarEditor extends HTMLElement {
     }
   }
 
-  _renderPopupItem(routeIndex, popupItem, popupIndex) {
+  _renderPopupItem(routeIndex, popupItem, popupIndex, popupTotal) {
     return `
       <div class="sub-card">
         <div class="route-head route-head--sub">
           <strong>Popup ${popupIndex + 1}</strong>
-          <button
-            type="button"
-            class="danger"
-            data-editor-action="remove-popup-item"
-            data-route-index="${routeIndex}"
-            data-popup-index="${popupIndex}"
-          >
-            Eliminar
-          </button>
+          <div class="head-actions">
+            <button
+              type="button"
+              class="secondary"
+              data-editor-action="move-popup-item-up"
+              data-route-index="${routeIndex}"
+              data-popup-index="${popupIndex}"
+              ${popupIndex === 0 ? "disabled" : ""}
+            >
+              Subir
+            </button>
+            <button
+              type="button"
+              class="secondary"
+              data-editor-action="move-popup-item-down"
+              data-route-index="${routeIndex}"
+              data-popup-index="${popupIndex}"
+              ${popupIndex === popupTotal - 1 ? "disabled" : ""}
+            >
+              Bajar
+            </button>
+            <button
+              type="button"
+              class="danger"
+              data-editor-action="remove-popup-item"
+              data-route-index="${routeIndex}"
+              data-popup-index="${popupIndex}"
+            >
+              Eliminar
+            </button>
+          </div>
         </div>
         <div class="grid">
           <label>
@@ -2517,18 +3074,38 @@ class NodaliaNavigationBarEditor extends HTMLElement {
     `;
   }
 
-  _renderRoute(route, index) {
+  _renderRoute(route, index, totalRoutes) {
     const popupMarkup = Array.isArray(route.popup) && route.popup.length > 0
-      ? route.popup.map((popupItem, popupIndex) => this._renderPopupItem(index, popupItem, popupIndex)).join("")
+      ? route.popup.map((popupItem, popupIndex) => this._renderPopupItem(index, popupItem, popupIndex, route.popup.length)).join("")
       : '<p class="hint">Esta ruta no tiene popup todavia.</p>';
 
     return `
       <div class="route-card">
         <div class="route-head">
           <strong>Ruta ${index + 1}</strong>
-          <button type="button" class="danger" data-editor-action="remove-route" data-route-index="${index}">
-            Eliminar
-          </button>
+          <div class="head-actions">
+            <button
+              type="button"
+              class="secondary"
+              data-editor-action="move-route-up"
+              data-route-index="${index}"
+              ${index === 0 ? "disabled" : ""}
+            >
+              Subir
+            </button>
+            <button
+              type="button"
+              class="secondary"
+              data-editor-action="move-route-down"
+              data-route-index="${index}"
+              ${index === totalRoutes - 1 ? "disabled" : ""}
+            >
+              Bajar
+            </button>
+            <button type="button" class="danger" data-editor-action="remove-route" data-route-index="${index}">
+              Eliminar
+            </button>
+          </div>
         </div>
         <div class="grid">
           <label>
@@ -2602,7 +3179,7 @@ class NodaliaNavigationBarEditor extends HTMLElement {
 
   _render() {
     const config = normalizeConfig(this._config || STUB_CONFIG);
-    const routesMarkup = config.routes.map((route, index) => this._renderRoute(route, index)).join("");
+    const routesMarkup = config.routes.map((route, index) => this._renderRoute(route, index, config.routes.length)).join("");
     const playersMarkup = (config.media_player?.players || [])
       .map((player, index) => this._renderMediaPlayerPlayer(player, index))
       .join("");
@@ -2644,6 +3221,13 @@ class NodaliaNavigationBarEditor extends HTMLElement {
         .route-head--subsection,
         .route-head--sub {
           margin-bottom: 10px;
+        }
+
+        .head-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          justify-content: flex-end;
         }
 
         .grid {
@@ -2710,6 +3294,17 @@ class NodaliaNavigationBarEditor extends HTMLElement {
 
         button.danger {
           background: var(--error-color);
+        }
+
+        button.secondary {
+          background: var(--secondary-background-color);
+          border: 1px solid var(--divider-color);
+          color: var(--primary-text-color);
+        }
+
+        button[disabled] {
+          cursor: default;
+          opacity: 0.45;
         }
 
         .hint {
@@ -2862,6 +3457,26 @@ class NodaliaNavigationBarEditor extends HTMLElement {
             <label>
               <span>Radio player</span>
               <input type="text" data-field="styles.media_player.border_radius" value="${escapeHtml(config.styles.media_player.border_radius || "")}" />
+            </label>
+            <label>
+              <span>Padding player</span>
+              <input type="text" data-field="styles.media_player.padding" value="${escapeHtml(config.styles.media_player.padding || "")}" />
+            </label>
+            <label>
+              <span>Tamano portada</span>
+              <input type="text" data-field="styles.media_player.artwork_size" value="${escapeHtml(config.styles.media_player.artwork_size || "")}" />
+            </label>
+            <label>
+              <span>Tamano controles</span>
+              <input type="text" data-field="styles.media_player.control_size" value="${escapeHtml(config.styles.media_player.control_size || "")}" />
+            </label>
+            <label>
+              <span>Tamano titulo</span>
+              <input type="text" data-field="styles.media_player.title_size" value="${escapeHtml(config.styles.media_player.title_size || "")}" />
+            </label>
+            <label>
+              <span>Tamano subtitulo</span>
+              <input type="text" data-field="styles.media_player.subtitle_size" value="${escapeHtml(config.styles.media_player.subtitle_size || "")}" />
             </label>
           </div>
           <div class="subsection">

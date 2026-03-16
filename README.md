@@ -9,10 +9,10 @@ Tarjeta Lovelace ligera para Home Assistant pensada para reemplazar barras de na
 - Rutas con visibilidad por usuario.
 - Deteccion de ruta activa.
 - Popups por ruta para agrupar accesos secundarios, tambien en modo solo icono.
-- Media player integrado encima de la barra.
+- Media player integrado encima de la barra, con boton para plegarlo temporalmente.
 - Soporte basico para `navigate`, `url`, `call-service`, `toggle` y `more-info`.
 - Badges sencillos por valor fijo o por entidad.
-- Editor visual para general, rutas, popup y media player.
+- Editor visual para general, rutas, popup y media player, con reordenacion rapida.
 - Archivo unico `nodalia-navigation-bar.js`, sin build.
 
 ## Instalacion
@@ -244,6 +244,7 @@ Cada item del popup admite practicamente los mismos campos que una ruta normal: 
 ## Media player integrado
 
 El bloque `media_player` se muestra encima de la barra cuando encuentra reproductores visibles. Por defecto, un reproductor aparece si su estado es `playing` o `paused`.
+Desde la propia UI puedes plegarlo temporalmente y volver a mostrarlo con una pastilla compacta, sin tocar la configuracion.
 
 ```yaml
 media_player:
