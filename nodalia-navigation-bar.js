@@ -500,6 +500,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
         mediaControlButton.dataset.entity,
         {
           muted: mediaControlButton.dataset.mediaMuted === "true",
+          path: mediaControlButton.dataset.mediaPath,
           volume: Number(mediaControlButton.dataset.mediaVolume),
         },
       );
@@ -1198,6 +1199,34 @@ class NodaliaNavigationBarCard extends HTMLElement {
     return sourceLabel;
   }
 
+  _isMusicAssistantPlayer(player, state) {
+    const candidates = [
+      player?.entity,
+      player?.label,
+      player?.name,
+      player?.title,
+      state?.attributes?.friendly_name,
+      state?.attributes?.source,
+      state?.attributes?.app_name,
+      state?.attributes?.media_channel,
+      state?.attributes?.media_content_id,
+    ];
+
+    return candidates.some(candidate => normalizeTextKey(candidate).includes("music assistant"));
+  }
+
+  _getMediaPlayerBrowsePath(player, state) {
+    if (player?.browse_path) {
+      return player.browse_path;
+    }
+
+    if (player?.media_browser_path) {
+      return player.media_browser_path;
+    }
+
+    return this._isMusicAssistantPlayer(player, state) ? "/media-browser/browser" : "";
+  }
+
   _supportsVolumeControl(state) {
     return typeof state?.attributes?.volume_level === "number";
   }
@@ -1284,6 +1313,9 @@ class NodaliaNavigationBarCard extends HTMLElement {
         });
         break;
       }
+      case "browse-media":
+        this._navigate(options.path || "/media-browser/browser");
+        break;
       default:
         break;
     }
@@ -1468,6 +1500,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
     const chips = this._getMediaPlayerChips(player, state, progress, title, subtitle);
     const playerName = this._getMediaPlayerPlayerLabel(player, state);
     const statusLabel = this._getMediaPlayerStateLabel(state.state);
+    const browsePath = this._getMediaPlayerBrowsePath(player, state);
     const volumeLevel = Number(state.attributes.volume_level ?? 0);
     const volumeSupported = this._supportsVolumeControl(state);
     const volumeDownMarkup = volumeSupported
@@ -1495,6 +1528,20 @@ class NodaliaNavigationBarCard extends HTMLElement {
           aria-label="Subir volumen"
         >
           <ha-icon icon="mdi:plus"></ha-icon>
+        </button>
+      `
+      : "";
+    const browseMediaMarkup = browsePath
+      ? `
+        <button
+          type="button"
+          class="media-player__volume-button media-player__volume-button--browse"
+          data-media-control="browse-media"
+          data-entity="${escapeHtml(player.entity)}"
+          data-media-path="${escapeHtml(browsePath)}"
+          aria-label="Abrir medios"
+        >
+          <ha-icon icon="mdi:music-box-multiple-outline"></ha-icon>
         </button>
       `
       : "";
@@ -1637,6 +1684,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
                   </button>
                 </div>
                 ${volumeUpMarkup}
+                ${browseMediaMarkup}
               </div>
             </div>
           </div>
@@ -2947,6 +2995,10 @@ class NodaliaNavigationBarEditor extends HTMLElement {
         delete player.name;
       }
 
+      if (playerField.dataset.playerField === "browse_path") {
+        delete player.media_browser_path;
+      }
+
       this._applyFieldValue(player, playerField.dataset.playerField, playerField);
       this._commitEditorConfig(nextConfig, shouldEmit);
       return;
@@ -3284,6 +3336,17 @@ class NodaliaNavigationBarEditor extends HTMLElement {
               data-optional="true"
               value="${escapeHtml(player.label || player.name || "")}"
               placeholder="HomePod mini Salon"
+            />
+          </label>
+          <label>
+            <span>Ruta medios</span>
+            <input
+              type="text"
+              data-player-index="${index}"
+              data-player-field="browse_path"
+              data-optional="true"
+              value="${escapeHtml(player.browse_path || player.media_browser_path || "")}"
+              placeholder="/media-browser/browser"
             />
           </label>
           <label>
