@@ -1533,16 +1533,18 @@ class NodaliaNavigationBarCard extends HTMLElement {
       : "";
     const browseMediaMarkup = browsePath
       ? `
-        <button
-          type="button"
-          class="media-player__volume-button media-player__volume-button--browse"
-          data-media-control="browse-media"
-          data-entity="${escapeHtml(player.entity)}"
-          data-media-path="${escapeHtml(browsePath)}"
-          aria-label="Abrir medios"
-        >
-          <ha-icon icon="mdi:music-box-multiple-outline"></ha-icon>
-        </button>
+        <div class="media-player__transport-addon">
+          <button
+            type="button"
+            class="media-player__volume-button media-player__volume-button--browse"
+            data-media-control="browse-media"
+            data-entity="${escapeHtml(player.entity)}"
+            data-media-path="${escapeHtml(browsePath)}"
+            aria-label="Abrir medios"
+          >
+            <ha-icon icon="mdi:music-box-multiple-outline"></ha-icon>
+          </button>
+        </div>
       `
       : "";
     const dotsMarkup =
@@ -1652,38 +1654,40 @@ class NodaliaNavigationBarCard extends HTMLElement {
           <div class="media-player__center-stack">
             ${switcherMarkup}
             <div class="media-player__transport-row">
-              <div class="media-player__transport-cluster">
-                ${volumeDownMarkup}
-                <div class="media-player__transport">
-                  <button
-                    type="button"
-                    class="media-player__control"
-                    data-media-control="previous"
-                    data-entity="${escapeHtml(player.entity)}"
-                    aria-label="Anterior"
-                  >
-                    <ha-icon icon="mdi:skip-previous"></ha-icon>
-                  </button>
-                  <button
-                    type="button"
-                    class="media-player__control media-player__control--primary"
-                    data-media-control="play-pause"
-                    data-entity="${escapeHtml(player.entity)}"
-                    aria-label="Play o pausa"
-                  >
-                    <ha-icon icon="${escapeHtml(state.state === "playing" ? "mdi:pause" : "mdi:play")}"></ha-icon>
-                  </button>
-                  <button
-                    type="button"
-                    class="media-player__control"
-                    data-media-control="next"
-                    data-entity="${escapeHtml(player.entity)}"
-                    aria-label="Siguiente"
-                  >
-                    <ha-icon icon="mdi:skip-next"></ha-icon>
-                  </button>
+              <div class="media-player__transport-shell">
+                <div class="media-player__transport-cluster">
+                  ${volumeDownMarkup}
+                  <div class="media-player__transport">
+                    <button
+                      type="button"
+                      class="media-player__control"
+                      data-media-control="previous"
+                      data-entity="${escapeHtml(player.entity)}"
+                      aria-label="Anterior"
+                    >
+                      <ha-icon icon="mdi:skip-previous"></ha-icon>
+                    </button>
+                    <button
+                      type="button"
+                      class="media-player__control media-player__control--primary"
+                      data-media-control="play-pause"
+                      data-entity="${escapeHtml(player.entity)}"
+                      aria-label="Play o pausa"
+                    >
+                      <ha-icon icon="${escapeHtml(state.state === "playing" ? "mdi:pause" : "mdi:play")}"></ha-icon>
+                    </button>
+                    <button
+                      type="button"
+                      class="media-player__control"
+                      data-media-control="next"
+                      data-entity="${escapeHtml(player.entity)}"
+                      aria-label="Siguiente"
+                    >
+                      <ha-icon icon="mdi:skip-next"></ha-icon>
+                    </button>
+                  </div>
+                  ${volumeUpMarkup}
                 </div>
-                ${volumeUpMarkup}
                 ${browseMediaMarkup}
               </div>
             </div>
@@ -2417,12 +2421,29 @@ class NodaliaNavigationBarCard extends HTMLElement {
           width: 100%;
         }
 
+        .media-player__transport-shell {
+          align-items: center;
+          display: inline-flex;
+          justify-content: center;
+          position: relative;
+          width: auto;
+        }
+
         .media-player__transport-cluster {
           align-items: center;
           display: inline-flex;
           gap: 10px;
           justify-content: center;
           width: auto;
+        }
+
+        .media-player__transport-addon {
+          align-items: center;
+          display: inline-flex;
+          left: calc(100% + 10px);
+          position: absolute;
+          top: 50%;
+          transform: translateY(-50%);
         }
 
         .media-player__footer {
