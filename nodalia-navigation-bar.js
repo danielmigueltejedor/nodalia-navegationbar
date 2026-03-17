@@ -1459,6 +1459,9 @@ class NodaliaNavigationBarCard extends HTMLElement {
     const progress = this._getMediaPlayerProgress(state);
     const albumCoverBackground = this._config.media_player.album_cover_background && artwork;
     const chips = this._getMediaPlayerChips(player, state, progress, title, subtitle);
+    const playerNameChip = chips.find(chip => chip.tone === "device") || null;
+    const statusChip = chips.find(chip => chip.tone === state.state) || null;
+    const footerChips = chips.filter(chip => chip !== playerNameChip && chip !== statusChip);
     const volumeLevel = Number(state.attributes.volume_level ?? 0);
     const volumeSupported = this._supportsVolumeControl(state);
     const volumeDownMarkup = volumeSupported
@@ -1511,11 +1514,29 @@ class NodaliaNavigationBarCard extends HTMLElement {
     const switcherMarkup = dotsMarkup
       ? `<div class="media-player__switcher">${dotsMarkup}</div>`
       : "";
-    const chipsMarkup = chips.length
+    const topPlayerNameMarkup = playerNameChip
+      ? `
+        <div class="media-player__topline">
+          <span class="media-player__chip media-player__chip--device media-player__chip--top">
+            ${escapeHtml(playerNameChip.label)}
+          </span>
+        </div>
+      `
+      : "";
+    const statusMarkup = statusChip
+      ? `
+        <div class="media-player__status-wrap">
+          <span class="media-player__chip media-player__chip--${escapeHtml(statusChip.tone)} media-player__chip--status">
+            ${escapeHtml(statusChip.label)}
+          </span>
+        </div>
+      `
+      : "";
+    const chipsMarkup = footerChips.length
       ? `
         <div class="media-player__chips-wrap">
           <div class="media-player__chips">
-          ${chips
+          ${footerChips
             .map(
               chip => `
                 <span class="media-player__chip media-player__chip--${escapeHtml(chip.tone)}">
@@ -1559,7 +1580,9 @@ class NodaliaNavigationBarCard extends HTMLElement {
             : ""
         }
         ${collapseMarkup}
+        ${statusMarkup}
         <div class="media-player__content">
+          ${topPlayerNameMarkup}
           <div class="media-player__hero">
             <div class="media-player__artwork">
               ${
@@ -1576,37 +1599,39 @@ class NodaliaNavigationBarCard extends HTMLElement {
           <div class="media-player__center-stack">
             ${switcherMarkup}
             <div class="media-player__transport-row">
-              ${volumeDownMarkup}
-              <div class="media-player__transport">
-                <button
-                  type="button"
-                  class="media-player__control"
-                  data-media-control="previous"
-                  data-entity="${escapeHtml(player.entity)}"
-                  aria-label="Anterior"
-                >
-                  <ha-icon icon="mdi:skip-previous"></ha-icon>
-                </button>
-                <button
-                  type="button"
-                  class="media-player__control media-player__control--primary"
-                  data-media-control="play-pause"
-                  data-entity="${escapeHtml(player.entity)}"
-                  aria-label="Play o pausa"
-                >
-                  <ha-icon icon="${escapeHtml(state.state === "playing" ? "mdi:pause" : "mdi:play")}"></ha-icon>
-                </button>
-                <button
-                  type="button"
-                  class="media-player__control"
-                  data-media-control="next"
-                  data-entity="${escapeHtml(player.entity)}"
-                  aria-label="Siguiente"
-                >
-                  <ha-icon icon="mdi:skip-next"></ha-icon>
-                </button>
+              <div class="media-player__transport-cluster">
+                ${volumeDownMarkup}
+                <div class="media-player__transport">
+                  <button
+                    type="button"
+                    class="media-player__control"
+                    data-media-control="previous"
+                    data-entity="${escapeHtml(player.entity)}"
+                    aria-label="Anterior"
+                  >
+                    <ha-icon icon="mdi:skip-previous"></ha-icon>
+                  </button>
+                  <button
+                    type="button"
+                    class="media-player__control media-player__control--primary"
+                    data-media-control="play-pause"
+                    data-entity="${escapeHtml(player.entity)}"
+                    aria-label="Play o pausa"
+                  >
+                    <ha-icon icon="${escapeHtml(state.state === "playing" ? "mdi:pause" : "mdi:play")}"></ha-icon>
+                  </button>
+                  <button
+                    type="button"
+                    class="media-player__control"
+                    data-media-control="next"
+                    data-entity="${escapeHtml(player.entity)}"
+                    aria-label="Siguiente"
+                  >
+                    <ha-icon icon="mdi:skip-next"></ha-icon>
+                  </button>
+                </div>
+                ${volumeUpMarkup}
               </div>
-              ${volumeUpMarkup}
             </div>
           </div>
           <div class="media-player__footer">
@@ -2237,17 +2262,26 @@ class NodaliaNavigationBarCard extends HTMLElement {
         }
 
         .media-player__content {
+          align-content: start;
           display: grid;
-          gap: 16px;
+          gap: 14px;
           padding-bottom: 12px;
         }
 
+        .media-player__topline {
+          display: flex;
+          justify-content: center;
+          min-height: 28px;
+          padding-right: 42px;
+          width: 100%;
+        }
+
         .media-player__hero {
-          align-items: center;
+          align-items: start;
           display: grid;
           gap: 14px;
           grid-template-columns: ${config.styles.media_player.artwork_size} minmax(0, 1fr);
-          padding-right: 52px;
+          padding-right: clamp(52px, 24vw, 168px);
         }
 
         .media-player__artwork {
@@ -2311,12 +2345,30 @@ class NodaliaNavigationBarCard extends HTMLElement {
           width: 100%;
         }
 
+        .media-player__status-wrap {
+          display: flex;
+          justify-content: flex-end;
+          max-width: calc(100% - 28px);
+          pointer-events: none;
+          position: absolute;
+          right: 14px;
+          top: 48px;
+          z-index: 2;
+        }
+
         .media-player__transport-row {
           align-items: center;
           display: flex;
-          gap: 10px;
           justify-content: center;
           width: 100%;
+        }
+
+        .media-player__transport-cluster {
+          align-items: center;
+          display: inline-flex;
+          gap: 10px;
+          justify-content: center;
+          width: auto;
         }
 
         .media-player__footer {
@@ -2387,6 +2439,14 @@ class NodaliaNavigationBarCard extends HTMLElement {
           padding: 0 10px;
           text-overflow: ellipsis;
           white-space: nowrap;
+        }
+
+        .media-player__chip--top {
+          max-width: min(100%, 320px);
+        }
+
+        .media-player__chip--status {
+          max-width: min(100%, 160px);
         }
 
         .media-player__chip--playing {
