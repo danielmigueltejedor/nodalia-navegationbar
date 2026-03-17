@@ -13,6 +13,8 @@ const HAPTIC_PATTERNS = {
 const MUSIC_ASSISTANT_BROWSER_EXCLUDE_PATTERNS = [
   "ai generated",
   "ai-generated",
+  "image",
+  "image upload",
   "generated images",
   "camera",
   "cameras",
@@ -20,6 +22,11 @@ const MUSIC_ASSISTANT_BROWSER_EXCLUDE_PATTERNS = [
   "dlna server",
   "dlna servers",
   "frigate",
+  "my media",
+  "text to speech",
+  "tts",
+  "xbox game media",
+  "xbox",
   "imagenes generadas",
   "images",
   "imagenes",
@@ -37,6 +44,33 @@ const MUSIC_ASSISTANT_DIRECTORY_ICON_RULES = [
   { patterns: ["recent", "recently", "recientes"], icon: "mdi:history" },
   { patterns: ["search", "buscar", "busqueda", "búsqueda"], icon: "mdi:magnify" },
 ];
+const MUSIC_ASSISTANT_LABEL_TRANSLATIONS = {
+  artist: "Artistas",
+  artists: "Artistas",
+  album: "Álbumes",
+  albums: "Álbumes",
+  track: "Canciones",
+  tracks: "Canciones",
+  song: "Canciones",
+  songs: "Canciones",
+  playlist: "Listas de reproducción",
+  playlists: "Listas de reproducción",
+  "radio station": "Emisoras",
+  "radio stations": "Emisoras",
+  podcast: "Podcasts",
+  podcasts: "Podcasts",
+  audiobook: "Audiolibros",
+  audiobooks: "Audiolibros",
+  genre: "Géneros",
+  genres: "Géneros",
+  favorite: "Favoritos",
+  favorites: "Favoritos",
+  favourites: "Favoritos",
+  search: "Buscar",
+  "recently played": "Reproducido recientemente",
+  "recently added": "Añadido recientemente",
+  "recently played tracks": "Canciones reproducidas recientemente",
+};
 
 const DEFAULT_CONFIG = {
   title: "",
@@ -1591,6 +1625,22 @@ class NodaliaNavigationBarCard extends HTMLElement {
     return match?.icon || "";
   }
 
+  _getMediaBrowserDisplayTitle(value) {
+    const label = typeof value === "string" ? value : value?.title;
+    const fallback = String(label || "").trim();
+
+    if (!fallback) {
+      return "Elemento";
+    }
+
+    if (!this._mediaBrowserState?.isMusicAssistant) {
+      return fallback;
+    }
+
+    const key = normalizeTextKey(fallback);
+    return MUSIC_ASSISTANT_LABEL_TRANSLATIONS[key] || fallback;
+  }
+
   _getMediaBrowserIcon(item) {
     const musicAssistantDirectoryIcon =
       item?.media_class === "directory" ? this._getMusicAssistantDirectoryIcon(item) : "";
@@ -1912,8 +1962,8 @@ class NodaliaNavigationBarCard extends HTMLElement {
                   const canExpand = item.can_expand === true;
                   const canPlay = item.can_play === true;
                   const defaultAction = canExpand ? "browse" : canPlay ? "play" : "";
-                  const meta = item.media_class || item.media_content_type || "";
                   const itemIcon = this._getMediaBrowserIcon(item);
+                  const itemTitle = this._getMediaBrowserDisplayTitle(item);
 
                   return `
                     <div class="media-browser__item">
@@ -1927,17 +1977,12 @@ class NodaliaNavigationBarCard extends HTMLElement {
                         <span class="media-browser__item-artwork">
                           ${
                             item.thumbnail
-                              ? `<img src="${escapeHtml(item.thumbnail)}" alt="${escapeHtml(item.title)}" />`
+                              ? `<img src="${escapeHtml(item.thumbnail)}" alt="${escapeHtml(itemTitle)}" />`
                               : `<ha-icon icon="${escapeHtml(itemIcon)}"></ha-icon>`
                           }
                         </span>
                         <span class="media-browser__item-copy">
-                          <span class="media-browser__item-title">${escapeHtml(item.title)}</span>
-                          ${
-                            meta
-                              ? `<span class="media-browser__item-meta">${escapeHtml(meta)}</span>`
-                              : ""
-                          }
+                          <span class="media-browser__item-title">${escapeHtml(itemTitle)}</span>
                         </span>
                         ${
                           canExpand
@@ -1954,7 +1999,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
                               data-media-browser-action="play"
                               data-media-content-type="${escapeHtml(item.media_content_type || "")}"
                               data-media-content-id="${escapeHtml(item.media_content_id || "")}"
-                              aria-label="Reproducir ${escapeHtml(item.title)}"
+                              aria-label="Reproducir ${escapeHtml(itemTitle)}"
                             >
                               <ha-icon icon="mdi:play"></ha-icon>
                             </button>
@@ -1982,7 +2027,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
           </button>
           <div class="media-browser__header-copy">
             <div class="media-browser__eyebrow">Music Assistant</div>
-            <div class="media-browser__title">${escapeHtml(currentNode?.title || "Medios")}</div>
+            <div class="media-browser__title">${escapeHtml(this._getMediaBrowserDisplayTitle(currentNode?.title || "Medios"))}</div>
           </div>
           <button
             type="button"
@@ -2801,8 +2846,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
           min-width: 0;
         }
 
-        .media-browser__item-title,
-        .media-browser__item-meta {
+        .media-browser__item-title {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -2812,11 +2856,6 @@ class NodaliaNavigationBarCard extends HTMLElement {
           color: var(--primary-text-color);
           font-size: 14px;
           font-weight: 700;
-        }
-
-        .media-browser__item-meta {
-          color: var(--secondary-text-color);
-          font-size: 12px;
         }
 
         .media-browser__item-chevron {
