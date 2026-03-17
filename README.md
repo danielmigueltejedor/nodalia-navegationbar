@@ -259,7 +259,7 @@ Cada item del popup admite practicamente los mismos campos que una ruta normal: 
 El bloque `media_player` se muestra encima de la barra cuando encuentra reproductores visibles. Por defecto, un reproductor aparece si su estado es `playing` o `paused`.
 La vista inicial es la pastilla compacta, menos intrusiva, y desde la propia UI puedes tocarla para desplegar el reproductor completo o volver a plegarlo despues, sin tocar la configuracion.
 Si la entidad expone volumen, la tarjeta muestra tambien controles de volumen integrados.
-Si detecta Music Assistant, muestra ademas un boton rapido para abrir un navegador de medios embebido para esa entidad, con categorias, playlists y elementos reproducibles.
+Si detecta Music Assistant, muestra ademas un boton rapido para abrir un navegador de medios embebido para esa entidad, con categorias, playlists y elementos reproducibles. En la raiz intenta ocultar secciones claramente ajenas a Music Assistant como camaras o servidores DLNA, y usa iconos mas acordes para categorias como artistas, albums, playlists o radios.
 
 ```yaml
 media_player:

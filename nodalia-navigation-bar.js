@@ -10,6 +10,33 @@ const HAPTIC_PATTERNS = {
   warning: [20, 50, 12],
   failure: [12, 40, 12, 40, 18],
 };
+const MUSIC_ASSISTANT_BROWSER_EXCLUDE_PATTERNS = [
+  "ai generated",
+  "ai-generated",
+  "generated images",
+  "camera",
+  "cameras",
+  "dlna",
+  "dlna server",
+  "dlna servers",
+  "frigate",
+  "imagenes generadas",
+  "images",
+  "imagenes",
+];
+const MUSIC_ASSISTANT_DIRECTORY_ICON_RULES = [
+  { patterns: ["artists", "artistas"], icon: "mdi:account-music" },
+  { patterns: ["albums", "albumes", "álbumes"], icon: "mdi:album" },
+  { patterns: ["tracks", "songs", "canciones", "temas", "pistas"], icon: "mdi:music-note" },
+  { patterns: ["playlists", "listas", "listas de reproduccion", "listas de reproducción"], icon: "mdi:playlist-music" },
+  { patterns: ["radio stations", "radios", "emisoras", "stations"], icon: "mdi:radio" },
+  { patterns: ["podcasts"], icon: "mdi:podcast" },
+  { patterns: ["audiobooks", "audiolibros"], icon: "mdi:book-music" },
+  { patterns: ["genres", "generos", "géneros"], icon: "mdi:shape" },
+  { patterns: ["favorites", "favourites", "favoritos"], icon: "mdi:heart" },
+  { patterns: ["recent", "recently", "recientes"], icon: "mdi:history" },
+  { patterns: ["search", "buscar", "busqueda", "búsqueda"], icon: "mdi:magnify" },
+];
 
 const DEFAULT_CONFIG = {
   title: "",
@@ -1406,6 +1433,10 @@ class NodaliaNavigationBarCard extends HTMLElement {
     this._mediaBrowserState = {
       entityId,
       fallbackPath,
+      isMusicAssistant: this._isMusicAssistantPlayer(
+        { entity: entityId },
+        this._hass?.states?.[entityId],
+      ),
       loading: true,
       error: "",
       stack: [],
@@ -1426,6 +1457,10 @@ class NodaliaNavigationBarCard extends HTMLElement {
       this._mediaBrowserState = {
         entityId,
         fallbackPath,
+        isMusicAssistant: this._isMusicAssistantPlayer(
+          { entity: entityId },
+          this._hass?.states?.[entityId],
+        ),
         loading: false,
         error: "",
         stack: [rootNode],
@@ -1445,6 +1480,10 @@ class NodaliaNavigationBarCard extends HTMLElement {
       this._mediaBrowserState = {
         entityId,
         fallbackPath,
+        isMusicAssistant: this._isMusicAssistantPlayer(
+          { entity: entityId },
+          this._hass?.states?.[entityId],
+        ),
         loading: false,
         error: "No se pudieron cargar los medios.",
         stack: [],
@@ -1538,7 +1577,28 @@ class NodaliaNavigationBarCard extends HTMLElement {
     this._closeMediaBrowser();
   }
 
+  _getMusicAssistantDirectoryIcon(item) {
+    const haystack = normalizeTextKey([
+      item?.title,
+      item?.media_content_type,
+      item?.media_content_id,
+    ].filter(Boolean).join(" "));
+
+    const match = MUSIC_ASSISTANT_DIRECTORY_ICON_RULES.find(rule =>
+      rule.patterns.some(pattern => haystack.includes(pattern)),
+    );
+
+    return match?.icon || "";
+  }
+
   _getMediaBrowserIcon(item) {
+    const musicAssistantDirectoryIcon =
+      item?.media_class === "directory" ? this._getMusicAssistantDirectoryIcon(item) : "";
+
+    if (musicAssistantDirectoryIcon) {
+      return musicAssistantDirectoryIcon;
+    }
+
     switch (item?.media_class) {
       case "directory":
         return "mdi:folder";
@@ -1563,6 +1623,29 @@ class NodaliaNavigationBarCard extends HTMLElement {
       default:
         return item?.can_expand ? "mdi:folder-outline" : "mdi:music-box";
     }
+  }
+
+  _shouldFilterMusicAssistantBrowserItems() {
+    return Boolean(
+      this._mediaBrowserState?.isMusicAssistant &&
+      Array.isArray(this._mediaBrowserState?.stack) &&
+      this._mediaBrowserState.stack.length <= 1,
+    );
+  }
+
+  _shouldHideMediaBrowserItem(item) {
+    if (!this._shouldFilterMusicAssistantBrowserItems() || !item) {
+      return false;
+    }
+
+    const haystack = normalizeTextKey([
+      item.title,
+      item.media_class,
+      item.media_content_type,
+      item.media_content_id,
+    ].filter(Boolean).join(" "));
+
+    return MUSIC_ASSISTANT_BROWSER_EXCLUDE_PATTERNS.some(pattern => haystack.includes(pattern));
   }
 
   _getMediaPlayerChips(player, state, progress, title, subtitle) {
@@ -1812,7 +1895,9 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
     const currentNode =
       this._mediaBrowserState.stack[this._mediaBrowserState.stack.length - 1] || null;
-    const items = Array.isArray(currentNode?.children) ? currentNode.children : [];
+    const items = (Array.isArray(currentNode?.children) ? currentNode.children : []).filter(
+      item => !this._shouldHideMediaBrowserItem(item),
+    );
 
     const bodyMarkup = this._mediaBrowserState.loading
       ? `<div class="media-browser__empty">Cargando medios...</div>`
