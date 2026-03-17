@@ -1190,32 +1190,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
   }
 
   _supportsVolumeControl(state) {
-    return (
-      typeof state?.attributes?.volume_level === "number" ||
-      state?.attributes?.is_volume_muted !== undefined
-    );
-  }
-
-  _getMediaPlayerVolumeIcon(state) {
-    if (state?.attributes?.is_volume_muted) {
-      return "mdi:volume-off";
-    }
-
-    const volumeLevel = Number(state?.attributes?.volume_level ?? 0);
-
-    if (volumeLevel >= 0.66) {
-      return "mdi:volume-high";
-    }
-
-    if (volumeLevel >= 0.33) {
-      return "mdi:volume-medium";
-    }
-
-    if (volumeLevel > 0.01) {
-      return "mdi:volume-low";
-    }
-
-    return "mdi:volume-mute";
+    return typeof state?.attributes?.volume_level === "number";
   }
 
   _getMediaPlayerChips(player, state, progress, title, subtitle) {
@@ -1302,12 +1277,6 @@ class NodaliaNavigationBarCard extends HTMLElement {
         });
         break;
       }
-      case "mute-toggle":
-        this._hass.callService("media_player", "volume_mute", {
-          entity_id: entityId,
-          is_volume_muted: !options.muted,
-        });
-        break;
       default:
         break;
     }
@@ -1490,55 +1459,34 @@ class NodaliaNavigationBarCard extends HTMLElement {
     const progress = this._getMediaPlayerProgress(state);
     const albumCoverBackground = this._config.media_player.album_cover_background && artwork;
     const chips = this._getMediaPlayerChips(player, state, progress, title, subtitle);
-    const hasVolumeLevel = typeof state.attributes.volume_level === "number";
     const volumeLevel = Number(state.attributes.volume_level ?? 0);
     const volumeSupported = this._supportsVolumeControl(state);
-    const volumeMarkup = volumeSupported
+    const volumeDownMarkup = volumeSupported
       ? `
-        <div class="media-player__volume">
-          ${
-            hasVolumeLevel
-              ? `
-                <button
-                  type="button"
-                  class="media-player__volume-button"
-                  data-media-control="volume-down"
-                  data-entity="${escapeHtml(player.entity)}"
-                  data-media-volume="${volumeLevel}"
-                  aria-label="Bajar volumen"
-                >
-                  <ha-icon icon="mdi:minus"></ha-icon>
-                </button>
-              `
-              : ""
-          }
-          <button
-            type="button"
-            class="media-player__volume-button media-player__volume-button--accent"
-            data-media-control="mute-toggle"
-            data-entity="${escapeHtml(player.entity)}"
-            data-media-muted="${state.attributes.is_volume_muted ? "true" : "false"}"
-            aria-label="${escapeHtml(state.attributes.is_volume_muted ? "Activar sonido" : "Silenciar")}"
-          >
-            <ha-icon icon="${escapeHtml(this._getMediaPlayerVolumeIcon(state))}"></ha-icon>
-          </button>
-          ${
-            hasVolumeLevel
-              ? `
-                <button
-                  type="button"
-                  class="media-player__volume-button"
-                  data-media-control="volume-up"
-                  data-entity="${escapeHtml(player.entity)}"
-                  data-media-volume="${volumeLevel}"
-                  aria-label="Subir volumen"
-                >
-                  <ha-icon icon="mdi:plus"></ha-icon>
-                </button>
-              `
-              : ""
-          }
-        </div>
+        <button
+          type="button"
+          class="media-player__volume-button"
+          data-media-control="volume-down"
+          data-entity="${escapeHtml(player.entity)}"
+          data-media-volume="${volumeLevel}"
+          aria-label="Bajar volumen"
+        >
+          <ha-icon icon="mdi:minus"></ha-icon>
+        </button>
+      `
+      : "";
+    const volumeUpMarkup = volumeSupported
+      ? `
+        <button
+          type="button"
+          class="media-player__volume-button"
+          data-media-control="volume-up"
+          data-entity="${escapeHtml(player.entity)}"
+          data-media-volume="${volumeLevel}"
+          aria-label="Subir volumen"
+        >
+          <ha-icon icon="mdi:plus"></ha-icon>
+        </button>
       `
       : "";
     const dotsMarkup =
@@ -1627,36 +1575,39 @@ class NodaliaNavigationBarCard extends HTMLElement {
           </div>
           <div class="media-player__center-stack">
             ${switcherMarkup}
-            <div class="media-player__transport">
-              <button
-                type="button"
-                class="media-player__control"
-                data-media-control="previous"
-                data-entity="${escapeHtml(player.entity)}"
-                aria-label="Anterior"
-              >
-                <ha-icon icon="mdi:skip-previous"></ha-icon>
-              </button>
-              <button
-                type="button"
-                class="media-player__control media-player__control--primary"
-                data-media-control="play-pause"
-                data-entity="${escapeHtml(player.entity)}"
-                aria-label="Play o pausa"
-              >
-                <ha-icon icon="${escapeHtml(state.state === "playing" ? "mdi:pause" : "mdi:play")}"></ha-icon>
-              </button>
-              <button
-                type="button"
-                class="media-player__control"
-                data-media-control="next"
-                data-entity="${escapeHtml(player.entity)}"
-                aria-label="Siguiente"
-              >
-                <ha-icon icon="mdi:skip-next"></ha-icon>
-              </button>
+            <div class="media-player__transport-row">
+              ${volumeDownMarkup}
+              <div class="media-player__transport">
+                <button
+                  type="button"
+                  class="media-player__control"
+                  data-media-control="previous"
+                  data-entity="${escapeHtml(player.entity)}"
+                  aria-label="Anterior"
+                >
+                  <ha-icon icon="mdi:skip-previous"></ha-icon>
+                </button>
+                <button
+                  type="button"
+                  class="media-player__control media-player__control--primary"
+                  data-media-control="play-pause"
+                  data-entity="${escapeHtml(player.entity)}"
+                  aria-label="Play o pausa"
+                >
+                  <ha-icon icon="${escapeHtml(state.state === "playing" ? "mdi:pause" : "mdi:play")}"></ha-icon>
+                </button>
+                <button
+                  type="button"
+                  class="media-player__control"
+                  data-media-control="next"
+                  data-entity="${escapeHtml(player.entity)}"
+                  aria-label="Siguiente"
+                >
+                  <ha-icon icon="mdi:skip-next"></ha-icon>
+                </button>
+              </div>
+              ${volumeUpMarkup}
             </div>
-            ${volumeMarkup}
           </div>
           <div class="media-player__footer">
             ${chipsMarkup}
@@ -2360,6 +2311,14 @@ class NodaliaNavigationBarCard extends HTMLElement {
           width: 100%;
         }
 
+        .media-player__transport-row {
+          align-items: center;
+          display: flex;
+          gap: 10px;
+          justify-content: center;
+          width: 100%;
+        }
+
         .media-player__footer {
           align-items: center;
           display: flex;
@@ -2380,17 +2339,6 @@ class NodaliaNavigationBarCard extends HTMLElement {
           margin: 0 auto;
         }
 
-        .media-player__volume {
-          align-items: center;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.06);
-          border-radius: 999px;
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-          display: inline-flex;
-          gap: 8px;
-          padding: 6px;
-        }
-
         .media-player__volume-button {
           align-items: center;
           appearance: none;
@@ -2403,12 +2351,8 @@ class NodaliaNavigationBarCard extends HTMLElement {
           height: calc(${config.styles.media_player.control_size} - 4px);
           justify-content: center;
           padding: 0;
+          flex: 0 0 auto;
           width: calc(${config.styles.media_player.control_size} - 4px);
-        }
-
-        .media-player__volume-button--accent {
-          background: rgba(var(--rgb-primary-color), 0.12);
-          border-color: rgba(var(--rgb-primary-color), 0.2);
         }
 
         .media-player__chips {
