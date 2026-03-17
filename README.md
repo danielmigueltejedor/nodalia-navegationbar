@@ -111,7 +111,6 @@ layout:
   reserve_space: true
   reserve_height: calc(90px + env(safe-area-inset-bottom, 0px))
   position: bottom
-  stack_gap: 12px
   show_desktop: false
   mobile_breakpoint: 1279
   z_index: 2
@@ -264,6 +263,7 @@ La vista inicial es la pastilla compacta, menos intrusiva, y desde la propia UI 
 media_player:
   show_desktop: false
   album_cover_background: true
+  gap: 0px
   reserve_height: 116px
   players:
     - entity: media_player.spotify_plus_daniel
@@ -279,6 +279,7 @@ media_player:
 - `show`: `true` o `false` para forzar visibilidad global.
 - `show_desktop`: muestra el widget tambien en escritorio.
 - `album_cover_background`: usa la caratula como fondo difuminado.
+- `gap`: separacion entre el media player y la navbar. Por defecto `0px`.
 - `reserve_height`: altura extra reservada cuando la barra es fija.
 - `players`: lista de reproductores.
 

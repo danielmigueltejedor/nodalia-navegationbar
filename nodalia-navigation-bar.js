@@ -100,6 +100,7 @@ const DEFAULT_CONFIG = {
     show: undefined,
     show_desktop: false,
     album_cover_background: true,
+    gap: "0px",
     reserve_height: "116px",
     players: [],
   },
@@ -1029,9 +1030,11 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
   _getReservedHeight(showMediaPlayer, showMediaPlayerToggle = false) {
     const baseHeight = this._config.layout.reserve_height;
+    const mediaGap = this._config.media_player.gap || "0px";
+
     if (!showMediaPlayer) {
       if (showMediaPlayerToggle) {
-        return `calc(${baseHeight} + ${this._config.layout.stack_gap} + 48px)`;
+        return `calc(${baseHeight} + ${mediaGap} + 48px)`;
       }
 
       return baseHeight;
@@ -1041,7 +1044,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
       this._config.media_player.reserve_height ||
       this._config.styles.media_player.min_height;
 
-    return `calc(${baseHeight} + ${this._config.layout.stack_gap} + ${mediaHeight})`;
+    return `calc(${baseHeight} + ${mediaGap} + ${mediaHeight})`;
   }
 
   _shouldShowMediaPlayerOnCurrentScreen() {
@@ -1166,6 +1169,22 @@ class NodaliaNavigationBarCard extends HTMLElement {
     };
   }
 
+  _getMediaPlayerSourceLabel(state) {
+    const sourceLabel =
+      state.attributes.source ||
+      state.attributes.app_name ||
+      state.attributes.media_album_name ||
+      state.attributes.media_channel;
+
+    const sourceKey = normalizeTextKey(sourceLabel);
+
+    if (!sourceKey || sourceKey.includes("music assistant")) {
+      return null;
+    }
+
+    return sourceLabel;
+  }
+
   _getMediaPlayerChips(player, state, progress, title, subtitle) {
     const chips = [];
     const seen = new Set();
@@ -1190,13 +1209,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
     addChip(this._getMediaPlayerStateLabel(state.state), state.state || "default");
     addChip(state.attributes.friendly_name || player.entity, "device");
-    addChip(
-      state.attributes.source ||
-        state.attributes.app_name ||
-        state.attributes.media_album_name ||
-        state.attributes.media_channel,
-      "source",
-    );
+    addChip(this._getMediaPlayerSourceLabel(state), "source");
 
     if (progress) {
       addChip(`${formatDuration(progress.position)} / ${formatDuration(progress.duration)}`, "time");
@@ -1619,6 +1632,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
     const showMediaPlayerCard = hasVisiblePlayers && (inEditMode || this._mediaPlayerExpanded === true);
     const showMediaPlayerToggle = hasVisiblePlayers && !showMediaPlayerCard;
+    const mediaStackGap = hasVisiblePlayers ? config.media_player.gap || "0px" : "0px";
     const currentPath = normalizePath(window.location.pathname) || "/";
     const isFixed = config.layout.fixed && !inEditMode;
     const spacerHeight = isFixed && config.layout.reserve_space
@@ -1727,7 +1741,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .dock-stack {
           display: grid;
-          gap: ${config.layout.stack_gap};
+          gap: ${mediaStackGap};
         }
 
         .media-player-toggle-wrap {
@@ -1755,11 +1769,13 @@ class NodaliaNavigationBarCard extends HTMLElement {
         }
 
         .navbar {
-          display: flex;
+          display: ${showRouteLabels ? "flex" : "grid"};
           align-items: center;
-          justify-content: ${config.styles.bar.justify_content};
+          justify-content: ${showRouteLabels ? config.styles.bar.justify_content : "stretch"};
           gap: ${config.styles.bar.gap};
           flex-wrap: nowrap;
+          grid-template-columns: ${showRouteLabels ? "none" : `repeat(${Math.max(visibleRoutes.length, 1)}, minmax(0, 1fr))`};
+          justify-items: ${showRouteLabels ? "stretch" : "center"};
           transform: translateY(${showRouteLabels ? "0px" : "4px"});
           width: 100%;
         }
@@ -2324,9 +2340,14 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .media-player__dots {
           align-content: center;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 999px;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
           display: grid;
-          gap: 7px;
+          gap: 4px;
           justify-items: center;
+          padding: 4px;
         }
 
         .media-player__collapse {
@@ -2350,16 +2371,29 @@ class NodaliaNavigationBarCard extends HTMLElement {
 
         .media-player__dot {
           appearance: none;
-          background: rgba(255, 255, 255, 0.14);
+          align-items: center;
+          background: transparent;
           border: 0;
           border-radius: 999px;
           cursor: pointer;
-          height: ${config.styles.media_player.dot_size};
+          display: inline-flex;
+          height: 28px;
+          justify-content: center;
           padding: 0;
+          position: relative;
+          width: 28px;
+        }
+
+        .media-player__dot::before {
+          background: rgba(255, 255, 255, 0.18);
+          border-radius: 999px;
+          content: "";
+          height: ${config.styles.media_player.dot_size};
+          transition: background 160ms ease, width 160ms ease;
           width: ${config.styles.media_player.dot_size};
         }
 
-        .media-player__dot.active {
+        .media-player__dot.active::before {
           background: ${config.styles.button.active_color};
           width: calc(${config.styles.media_player.dot_size} + 10px);
         }
@@ -2464,6 +2498,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
             display: flex;
             gap: 8px;
             justify-content: flex-start;
+            padding: 4px 6px;
           }
         }
       </style>
@@ -3526,6 +3561,10 @@ class NodaliaNavigationBarEditor extends HTMLElement {
             <label>
               <span>Altura reservada</span>
               <input type="text" data-field="media_player.reserve_height" value="${escapeHtml(config.media_player.reserve_height || "")}" />
+            </label>
+            <label>
+              <span>Separacion con navbar</span>
+              <input type="text" data-field="media_player.gap" value="${escapeHtml(config.media_player.gap || "")}" />
             </label>
             <label>
               <span>Radio player</span>
