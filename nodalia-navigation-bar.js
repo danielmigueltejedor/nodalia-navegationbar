@@ -392,19 +392,29 @@ class NodaliaNavigationBarCard extends HTMLElement {
     this._hass = null;
     this._renderedRoutes = [];
     this._popupState = null;
+    this._mediaBrowserState = null;
+    this._mediaBrowserRequestToken = 0;
     this._popupPositionFrame = null;
     this._activeMediaPlayerIndex = 0;
     this._mediaPlayerExpanded = false;
     this._mediaTicker = null;
     this._onResize = () => {
       this._closePopup(false);
+      this._closeMediaBrowser(false);
       this._render();
     };
     this._onLocationChange = () => {
       this._closePopup(false);
+      this._closeMediaBrowser(false);
       this._render();
     };
     this._onWindowKeyDown = event => {
+      if (event.key === "Escape" && this._mediaBrowserState) {
+        event.preventDefault();
+        this._closeMediaBrowser();
+        return;
+      }
+
       if (event.key === "Escape" && this._popupState) {
         event.preventDefault();
         this._closePopup();
@@ -531,6 +541,51 @@ class NodaliaNavigationBarCard extends HTMLElement {
       this._activeMediaPlayerIndex = Number(mediaDotButton.dataset.mediaIndex);
       this._render();
       return;
+    }
+
+    const mediaBrowserCloseButton = event
+      .composedPath()
+      .find(node => node instanceof HTMLElement && node.dataset?.mediaBrowserClose === "true");
+
+    if (mediaBrowserCloseButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      this._closeMediaBrowser();
+      return;
+    }
+
+    const mediaBrowserBackButton = event
+      .composedPath()
+      .find(node => node instanceof HTMLElement && node.dataset?.mediaBrowserBack === "true");
+
+    if (mediaBrowserBackButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      this._goBackMediaBrowser();
+      return;
+    }
+
+    const mediaBrowserActionButton = event
+      .composedPath()
+      .find(node => node instanceof HTMLElement && node.dataset?.mediaBrowserAction);
+
+    if (mediaBrowserActionButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      this._triggerHaptic();
+      const action = mediaBrowserActionButton.dataset.mediaBrowserAction;
+      const mediaContentType = mediaBrowserActionButton.dataset.mediaContentType || "";
+      const mediaContentId = mediaBrowserActionButton.dataset.mediaContentId || "";
+
+      if (action === "browse") {
+        this._browseMediaBrowserItem(mediaContentType, mediaContentId);
+        return;
+      }
+
+      if (action === "play") {
+        this._playMediaBrowserItem(mediaContentType, mediaContentId);
+        return;
+      }
     }
 
     const mediaCard = event
@@ -1246,40 +1301,268 @@ class NodaliaNavigationBarCard extends HTMLElement {
     });
   }
 
-  _showEntityMediaBrowser(entityId, fallbackPath = "") {
-    if (!entityId) {
-      return false;
+  _getMediaBrowserClient() {
+    if (typeof this._hass?.callWS === "function") {
+      return this._hass.callWS.bind(this._hass);
     }
 
-    const dialogTagCandidates = [
-      "ha-media-player-browse",
-      "ha-dialog-media-player-browse",
-      "ha-media-browser-dialog",
-    ];
+    if (typeof this._hass?.connection?.sendMessagePromise === "function") {
+      return this._hass.connection.sendMessagePromise.bind(this._hass.connection);
+    }
 
-    const dialogParams = {
-      action: "play",
-      entityId,
-      mediaPickedCallback: pickedMedia => this._playPickedMedia(entityId, pickedMedia),
+    return null;
+  }
+
+  _normalizeMediaBrowserItem(item) {
+    if (!item || typeof item !== "object") {
+      return null;
+    }
+
+    return {
+      title: item.title || item.name || "Elemento",
+      media_class: item.media_class || "",
+      media_content_id: item.media_content_id || "",
+      media_content_type: item.media_content_type || "",
+      can_play: item.can_play === true,
+      can_expand: item.can_expand === true,
+      thumbnail: item.thumbnail || item.thumbnail_url || "",
+      children: Array.isArray(item.children)
+        ? item.children.map(child => this._normalizeMediaBrowserItem(child)).filter(Boolean)
+        : [],
+    };
+  }
+
+  _normalizeMediaBrowserNode(result, entityId) {
+    let node = result;
+
+    if (node?.result && typeof node.result === "object") {
+      node = node.result;
+    }
+
+    if (node && entityId && typeof node[entityId] === "object") {
+      node = node[entityId];
+    }
+
+    const normalized = this._normalizeMediaBrowserItem(node);
+    if (!normalized) {
+      return null;
+    }
+
+    return {
+      ...normalized,
+      title: normalized.title || "Medios",
+    };
+  }
+
+  async _fetchMediaBrowserNode(entityId, mediaContentType = "", mediaContentId = "") {
+    const client = this._getMediaBrowserClient();
+    if (!client || !entityId) {
+      return null;
+    }
+
+    const payload = {
+      type: "media_player/browse_media",
+      entity_id: entityId,
     };
 
-    for (const dialogTag of dialogTagCandidates) {
-      if (typeof customElements !== "undefined" && customElements.get(dialogTag)) {
-        fireEvent(this, "show-dialog", {
-          dialogTag,
-          dialogParams,
-        });
-        return true;
+    if (mediaContentType) {
+      payload.media_content_type = mediaContentType;
+    }
+
+    if (mediaContentId) {
+      payload.media_content_id = mediaContentId;
+    }
+
+    const result = await client(payload);
+    return this._normalizeMediaBrowserNode(result, entityId);
+  }
+
+  _showEntityMediaBrowser(entityId, fallbackPath = "") {
+    this._openMediaBrowser(entityId, fallbackPath);
+    return true;
+  }
+
+  _closeMediaBrowser(shouldRender = true) {
+    if (!this._mediaBrowserState) {
+      return;
+    }
+
+    this._mediaBrowserState = null;
+    this._mediaBrowserRequestToken += 1;
+
+    if (shouldRender) {
+      this._render();
+    }
+  }
+
+  async _openMediaBrowser(entityId, fallbackPath = "") {
+    if (!entityId) {
+      return;
+    }
+
+    this._closePopup(false);
+    const token = this._mediaBrowserRequestToken + 1;
+    this._mediaBrowserRequestToken = token;
+    this._mediaBrowserState = {
+      entityId,
+      fallbackPath,
+      loading: true,
+      error: "",
+      stack: [],
+    };
+    this._render();
+
+    try {
+      const rootNode = await this._fetchMediaBrowserNode(entityId);
+
+      if (this._mediaBrowserRequestToken !== token) {
+        return;
       }
+
+      if (!rootNode) {
+        throw new Error("Empty media browser response");
+      }
+
+      this._mediaBrowserState = {
+        entityId,
+        fallbackPath,
+        loading: false,
+        error: "",
+        stack: [rootNode],
+      };
+      this._render();
+    } catch (_error) {
+      if (this._mediaBrowserRequestToken !== token) {
+        return;
+      }
+
+      if (fallbackPath) {
+        this._mediaBrowserState = null;
+        this._navigate(fallbackPath);
+        return;
+      }
+
+      this._mediaBrowserState = {
+        entityId,
+        fallbackPath,
+        loading: false,
+        error: "No se pudieron cargar los medios.",
+        stack: [],
+      };
+      this._render();
+    }
+  }
+
+  async _browseMediaBrowserItem(mediaContentType, mediaContentId) {
+    if (!this._mediaBrowserState?.entityId) {
+      return;
     }
 
-    if (fallbackPath) {
-      this._navigate(fallbackPath);
-      return false;
+    const previousState = this._mediaBrowserState;
+    const token = this._mediaBrowserRequestToken + 1;
+    this._mediaBrowserRequestToken = token;
+    this._mediaBrowserState = {
+      ...previousState,
+      loading: true,
+      error: "",
+    };
+    this._render();
+
+    try {
+      const nextNode = await this._fetchMediaBrowserNode(
+        previousState.entityId,
+        mediaContentType,
+        mediaContentId,
+      );
+
+      if (this._mediaBrowserRequestToken !== token) {
+        return;
+      }
+
+      if (!nextNode) {
+        throw new Error("Empty media browser response");
+      }
+
+      this._mediaBrowserState = {
+        ...previousState,
+        loading: false,
+        error: "",
+        stack: [...previousState.stack, nextNode],
+      };
+      this._render();
+    } catch (_error) {
+      if (this._mediaBrowserRequestToken !== token) {
+        return;
+      }
+
+      this._mediaBrowserState = {
+        ...previousState,
+        loading: false,
+        error: "No se pudo abrir este elemento.",
+      };
+      this._render();
+    }
+  }
+
+  _goBackMediaBrowser() {
+    if (!this._mediaBrowserState) {
+      return;
     }
 
-    fireEvent(this, "hass-more-info", { entityId });
-    return false;
+    if (this._mediaBrowserState.stack.length <= 1) {
+      this._closeMediaBrowser();
+      return;
+    }
+
+    this._mediaBrowserState = {
+      ...this._mediaBrowserState,
+      error: "",
+      loading: false,
+      stack: this._mediaBrowserState.stack.slice(0, -1),
+    };
+    this._render();
+  }
+
+  _playMediaBrowserItem(mediaContentType, mediaContentId) {
+    const entityId = this._mediaBrowserState?.entityId;
+
+    if (!this._hass || !entityId || !mediaContentType || !mediaContentId) {
+      return;
+    }
+
+    this._hass.callService("media_player", "play_media", {
+      entity_id: entityId,
+      media_content_id: mediaContentId,
+      media_content_type: mediaContentType,
+    });
+    this._closeMediaBrowser();
+  }
+
+  _getMediaBrowserIcon(item) {
+    switch (item?.media_class) {
+      case "directory":
+        return "mdi:folder";
+      case "album":
+        return "mdi:album";
+      case "artist":
+        return "mdi:account-music";
+      case "playlist":
+        return "mdi:playlist-music";
+      case "track":
+      case "music":
+        return "mdi:music-note";
+      case "podcast":
+        return "mdi:podcast";
+      case "radio":
+        return "mdi:radio";
+      case "tv_show":
+        return "mdi:television";
+      case "video":
+      case "movie":
+        return "mdi:movie";
+      default:
+        return item?.can_expand ? "mdi:folder-outline" : "mdi:music-box";
+    }
   }
 
   _getMediaPlayerChips(player, state, progress, title, subtitle) {
@@ -1518,6 +1801,114 @@ class NodaliaNavigationBarCard extends HTMLElement {
         <div class="popup-items">
           ${popupMarkup}
         </div>
+      </div>
+    `;
+  }
+
+  _renderMediaBrowser() {
+    if (!this._mediaBrowserState) {
+      return "";
+    }
+
+    const currentNode =
+      this._mediaBrowserState.stack[this._mediaBrowserState.stack.length - 1] || null;
+    const items = Array.isArray(currentNode?.children) ? currentNode.children : [];
+
+    const bodyMarkup = this._mediaBrowserState.loading
+      ? `<div class="media-browser__empty">Cargando medios...</div>`
+      : this._mediaBrowserState.error
+        ? `<div class="media-browser__empty">${escapeHtml(this._mediaBrowserState.error)}</div>`
+        : items.length === 0
+          ? `<div class="media-browser__empty">No hay elementos disponibles aqui.</div>`
+          : `
+            <div class="media-browser__list">
+              ${items
+                .map(item => {
+                  const canExpand = item.can_expand === true;
+                  const canPlay = item.can_play === true;
+                  const defaultAction = canExpand ? "browse" : canPlay ? "play" : "";
+                  const meta = item.media_class || item.media_content_type || "";
+                  const itemIcon = this._getMediaBrowserIcon(item);
+
+                  return `
+                    <div class="media-browser__item">
+                      <button
+                        type="button"
+                        class="media-browser__item-main"
+                        ${defaultAction ? `data-media-browser-action="${defaultAction}"` : "disabled"}
+                        data-media-content-type="${escapeHtml(item.media_content_type || "")}"
+                        data-media-content-id="${escapeHtml(item.media_content_id || "")}"
+                      >
+                        <span class="media-browser__item-artwork">
+                          ${
+                            item.thumbnail
+                              ? `<img src="${escapeHtml(item.thumbnail)}" alt="${escapeHtml(item.title)}" />`
+                              : `<ha-icon icon="${escapeHtml(itemIcon)}"></ha-icon>`
+                          }
+                        </span>
+                        <span class="media-browser__item-copy">
+                          <span class="media-browser__item-title">${escapeHtml(item.title)}</span>
+                          ${
+                            meta
+                              ? `<span class="media-browser__item-meta">${escapeHtml(meta)}</span>`
+                              : ""
+                          }
+                        </span>
+                        ${
+                          canExpand
+                            ? `<ha-icon class="media-browser__item-chevron" icon="mdi:chevron-right"></ha-icon>`
+                            : ""
+                        }
+                      </button>
+                      ${
+                        canPlay && canExpand
+                          ? `
+                            <button
+                              type="button"
+                              class="media-browser__item-play"
+                              data-media-browser-action="play"
+                              data-media-content-type="${escapeHtml(item.media_content_type || "")}"
+                              data-media-content-id="${escapeHtml(item.media_content_id || "")}"
+                              aria-label="Reproducir ${escapeHtml(item.title)}"
+                            >
+                              <ha-icon icon="mdi:play"></ha-icon>
+                            </button>
+                          `
+                          : ""
+                      }
+                    </div>
+                  `;
+                })
+                .join("")}
+            </div>
+          `;
+
+    return `
+      <div class="media-browser-backdrop" data-media-browser-close="true"></div>
+      <div class="media-browser-panel" role="dialog" aria-modal="true" aria-label="Navegador de medios">
+        <div class="media-browser__header">
+          <button
+            type="button"
+            class="media-browser__header-button"
+            data-media-browser-back="true"
+            aria-label="Volver"
+          >
+            <ha-icon icon="mdi:chevron-left"></ha-icon>
+          </button>
+          <div class="media-browser__header-copy">
+            <div class="media-browser__eyebrow">Music Assistant</div>
+            <div class="media-browser__title">${escapeHtml(currentNode?.title || "Medios")}</div>
+          </div>
+          <button
+            type="button"
+            class="media-browser__header-button"
+            data-media-browser-close="true"
+            aria-label="Cerrar"
+          >
+            <ha-icon icon="mdi:close"></ha-icon>
+          </button>
+        </div>
+        ${bodyMarkup}
       </div>
     `;
   }
@@ -1845,6 +2236,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
     const mediaPlayerMarkup = showMediaPlayerCard ? this._renderMediaPlayer(visiblePlayers) : "";
     const mediaPlayerToggleMarkup = showMediaPlayerToggle ? this._renderMediaPlayerToggle(visiblePlayers) : "";
     const popupMarkup = this._renderPopup(currentPath);
+    const mediaBrowserMarkup = this._renderMediaBrowser();
 
     const routesMarkup =
       visibleRoutes.length > 0
@@ -2182,6 +2574,182 @@ class NodaliaNavigationBarCard extends HTMLElement {
         .popup-panel--layout-horizontal .popup-items,
         .popup-panel--layout-auto .popup-items {
           grid-template-columns: repeat(var(--popup-columns), minmax(var(--popup-item-min), 1fr));
+        }
+
+        .media-browser-backdrop {
+          background: ${config.styles.popup.backdrop};
+          inset: 0;
+          position: fixed;
+          z-index: ${Number(config.layout.z_index) + 3};
+        }
+
+        .media-browser-panel {
+          background: ${config.styles.media_player.background};
+          border: ${config.styles.media_player.border};
+          border-radius: ${config.styles.media_player.border_radius};
+          box-shadow: ${config.styles.bar.box_shadow}, ${config.styles.popup.box_shadow};
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+          inset: max(16px, calc(env(safe-area-inset-top, 0px) + 12px)) 12px max(16px, calc(env(safe-area-inset-bottom, 0px) + 12px)) 12px;
+          max-width: 560px;
+          margin: 0 auto;
+          overflow: hidden;
+          padding: 14px;
+          position: fixed;
+          z-index: ${Number(config.layout.z_index) + 4};
+        }
+
+        .media-browser__header {
+          align-items: center;
+          display: grid;
+          gap: 12px;
+          grid-template-columns: 40px minmax(0, 1fr) 40px;
+        }
+
+        .media-browser__header-copy {
+          min-width: 0;
+          text-align: center;
+        }
+
+        .media-browser__eyebrow {
+          color: var(--secondary-text-color);
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+
+        .media-browser__title {
+          color: var(--primary-text-color);
+          font-size: 16px;
+          font-weight: 700;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .media-browser__header-button,
+        .media-browser__item-play {
+          align-items: center;
+          appearance: none;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 999px;
+          color: var(--primary-text-color);
+          cursor: pointer;
+          display: inline-flex;
+          height: 40px;
+          justify-content: center;
+          padding: 0;
+          width: 40px;
+        }
+
+        .media-browser__header-button ha-icon,
+        .media-browser__item-play ha-icon {
+          font-size: 20px;
+        }
+
+        .media-browser__list {
+          display: grid;
+          gap: 10px;
+          min-height: 0;
+          overflow: auto;
+          padding-right: 2px;
+        }
+
+        .media-browser__item {
+          align-items: center;
+          display: grid;
+          gap: 8px;
+          grid-template-columns: minmax(0, 1fr) auto;
+        }
+
+        .media-browser__item-main {
+          align-items: center;
+          appearance: none;
+          background: rgba(255, 255, 255, 0.03);
+          border: 1px solid rgba(255, 255, 255, 0.05);
+          border-radius: 20px;
+          color: var(--primary-text-color);
+          cursor: pointer;
+          display: grid;
+          gap: 12px;
+          grid-template-columns: 46px minmax(0, 1fr) auto;
+          min-height: 58px;
+          padding: 8px 10px;
+          text-align: left;
+          width: 100%;
+        }
+
+        .media-browser__item-main:disabled {
+          cursor: default;
+          opacity: 0.72;
+        }
+
+        .media-browser__item-artwork {
+          align-items: center;
+          background: rgba(255, 255, 255, 0.05);
+          border-radius: 14px;
+          display: inline-flex;
+          height: 46px;
+          justify-content: center;
+          overflow: hidden;
+          width: 46px;
+        }
+
+        .media-browser__item-artwork img,
+        .media-browser__item-artwork ha-icon {
+          height: 100%;
+          object-fit: cover;
+          width: 100%;
+        }
+
+        .media-browser__item-artwork ha-icon {
+          font-size: 22px;
+          padding: 11px;
+        }
+
+        .media-browser__item-copy {
+          display: grid;
+          gap: 2px;
+          min-width: 0;
+        }
+
+        .media-browser__item-title,
+        .media-browser__item-meta {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .media-browser__item-title {
+          color: var(--primary-text-color);
+          font-size: 14px;
+          font-weight: 700;
+        }
+
+        .media-browser__item-meta {
+          color: var(--secondary-text-color);
+          font-size: 12px;
+        }
+
+        .media-browser__item-chevron {
+          color: var(--secondary-text-color);
+          font-size: 20px;
+        }
+
+        .media-browser__empty {
+          align-items: center;
+          color: var(--secondary-text-color);
+          display: flex;
+          flex: 1 1 auto;
+          font-size: 13px;
+          justify-content: center;
+          line-height: 1.5;
+          min-height: 120px;
+          padding: 12px;
+          text-align: center;
         }
 
         .popup-item {
@@ -2816,6 +3384,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
         </div>
       </div>
       ${popupMarkup}
+      ${mediaBrowserMarkup}
     `;
 
     if (this._popupState) {
