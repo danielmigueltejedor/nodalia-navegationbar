@@ -1231,6 +1231,57 @@ class NodaliaNavigationBarCard extends HTMLElement {
     return typeof state?.attributes?.volume_level === "number";
   }
 
+  _playPickedMedia(entityId, pickedMedia) {
+    const mediaContentId = pickedMedia?.item?.media_content_id;
+    const mediaContentType = pickedMedia?.item?.media_content_type;
+
+    if (!this._hass || !entityId || !mediaContentId || !mediaContentType) {
+      return;
+    }
+
+    this._hass.callService("media_player", "play_media", {
+      entity_id: entityId,
+      media_content_id: mediaContentId,
+      media_content_type: mediaContentType,
+    });
+  }
+
+  _showEntityMediaBrowser(entityId, fallbackPath = "") {
+    if (!entityId) {
+      return false;
+    }
+
+    const dialogTagCandidates = [
+      "ha-media-player-browse",
+      "ha-dialog-media-player-browse",
+      "ha-media-browser-dialog",
+    ];
+
+    const dialogParams = {
+      action: "play",
+      entityId,
+      mediaPickedCallback: pickedMedia => this._playPickedMedia(entityId, pickedMedia),
+    };
+
+    for (const dialogTag of dialogTagCandidates) {
+      if (typeof customElements !== "undefined" && customElements.get(dialogTag)) {
+        fireEvent(this, "show-dialog", {
+          dialogTag,
+          dialogParams,
+        });
+        return true;
+      }
+    }
+
+    if (fallbackPath) {
+      this._navigate(fallbackPath);
+      return false;
+    }
+
+    fireEvent(this, "hass-more-info", { entityId });
+    return false;
+  }
+
   _getMediaPlayerChips(player, state, progress, title, subtitle) {
     const chips = [];
     const seen = new Set();
@@ -1314,7 +1365,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
         break;
       }
       case "browse-media":
-        this._navigate(options.path || "/media-browser/browser");
+        this._showEntityMediaBrowser(entityId, options.path || "/media-browser/browser");
         break;
       default:
         break;

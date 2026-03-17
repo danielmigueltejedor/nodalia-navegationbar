@@ -259,7 +259,7 @@ Cada item del popup admite practicamente los mismos campos que una ruta normal: 
 El bloque `media_player` se muestra encima de la barra cuando encuentra reproductores visibles. Por defecto, un reproductor aparece si su estado es `playing` o `paused`.
 La vista inicial es la pastilla compacta, menos intrusiva, y desde la propia UI puedes tocarla para desplegar el reproductor completo o volver a plegarlo despues, sin tocar la configuracion.
 Si la entidad expone volumen, la tarjeta muestra tambien controles de volumen integrados.
-Si detecta Music Assistant, muestra ademas un boton rapido para abrir el navegador de medios.
+Si detecta Music Assistant, muestra ademas un boton rapido para abrir el navegador de medios de esa entidad.
 
 ```yaml
 media_player:
@@ -292,7 +292,7 @@ media_player:
 
 - `entity`: entidad `media_player.*`.
 - `label`: nombre opcional del reproductor en la pastilla superior del widget.
-- `browse_path`: ruta opcional para el boton de medios. Si no la defines, la tarjeta intenta mostrarlo automaticamente en reproductores de Music Assistant.
+- `browse_path`: ruta opcional de fallback para el boton de medios si el dialogo del navegador no esta disponible.
 - `title`: titulo fijo opcional.
 - `subtitle`: subtitulo fijo opcional.
 - `icon`: icono alternativo si no quieres usar caratula.
