@@ -268,9 +268,11 @@ media_player:
   reserve_height: 116px
   players:
     - entity: media_player.spotify_plus_daniel
+      label: Spotify
       title: Spotify
       subtitle: Cuenta principal
     - entity: media_player.salon
+      label: HomePod mini Salon
       icon: mdi:speaker
       subtitle: Altavoz del salon
 ```
@@ -287,6 +289,7 @@ media_player:
 ### Opciones por reproductor
 
 - `entity`: entidad `media_player.*`.
+- `label`: nombre opcional del reproductor en la pastilla superior del widget.
 - `title`: titulo fijo opcional.
 - `subtitle`: subtitulo fijo opcional.
 - `icon`: icono alternativo si no quieres usar caratula.

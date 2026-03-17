@@ -1107,6 +1107,15 @@ class NodaliaNavigationBarCard extends HTMLElement {
     return state.attributes.media_title || state.attributes.friendly_name || player.entity;
   }
 
+  _getMediaPlayerPlayerLabel(player, state) {
+    return (
+      player.label ||
+      player.name ||
+      state.attributes.friendly_name ||
+      player.entity
+    );
+  }
+
   _getMediaPlayerSubtitle(player, state) {
     if (player.subtitle) {
       return player.subtitle;
@@ -1215,8 +1224,6 @@ class NodaliaNavigationBarCard extends HTMLElement {
       chips.push({ label: text, tone });
     };
 
-    addChip(this._getMediaPlayerStateLabel(state.state), state.state || "default");
-    addChip(state.attributes.friendly_name || player.entity, "device");
     addChip(this._getMediaPlayerSourceLabel(state), "source");
 
     if (progress) {
@@ -1459,9 +1466,8 @@ class NodaliaNavigationBarCard extends HTMLElement {
     const progress = this._getMediaPlayerProgress(state);
     const albumCoverBackground = this._config.media_player.album_cover_background && artwork;
     const chips = this._getMediaPlayerChips(player, state, progress, title, subtitle);
-    const playerNameChip = chips.find(chip => chip.tone === "device") || null;
-    const statusChip = chips.find(chip => chip.tone === state.state) || null;
-    const footerChips = chips.filter(chip => chip !== playerNameChip && chip !== statusChip);
+    const playerName = this._getMediaPlayerPlayerLabel(player, state);
+    const statusLabel = this._getMediaPlayerStateLabel(state.state);
     const volumeLevel = Number(state.attributes.volume_level ?? 0);
     const volumeSupported = this._supportsVolumeControl(state);
     const volumeDownMarkup = volumeSupported
@@ -1514,29 +1520,29 @@ class NodaliaNavigationBarCard extends HTMLElement {
     const switcherMarkup = dotsMarkup
       ? `<div class="media-player__switcher">${dotsMarkup}</div>`
       : "";
-    const topPlayerNameMarkup = playerNameChip
+    const topPlayerNameMarkup = playerName
       ? `
         <div class="media-player__topline">
           <span class="media-player__chip media-player__chip--device media-player__chip--top">
-            ${escapeHtml(playerNameChip.label)}
+            ${escapeHtml(playerName)}
           </span>
         </div>
       `
       : "";
-    const statusMarkup = statusChip
+    const statusMarkup = statusLabel
       ? `
         <div class="media-player__status-wrap">
-          <span class="media-player__chip media-player__chip--${escapeHtml(statusChip.tone)} media-player__chip--status">
-            ${escapeHtml(statusChip.label)}
+          <span class="media-player__chip media-player__chip--${escapeHtml(state.state || "default")} media-player__chip--status">
+            ${escapeHtml(statusLabel)}
           </span>
         </div>
       `
       : "";
-    const chipsMarkup = footerChips.length
+    const chipsMarkup = chips.length
       ? `
         <div class="media-player__chips-wrap">
           <div class="media-player__chips">
-          ${footerChips
+          ${chips
             .map(
               chip => `
                 <span class="media-player__chip media-player__chip--${escapeHtml(chip.tone)}">
@@ -2272,7 +2278,7 @@ class NodaliaNavigationBarCard extends HTMLElement {
           display: flex;
           justify-content: center;
           min-height: 28px;
-          padding-right: 42px;
+          padding-inline: 42px;
           width: 100%;
         }
 
@@ -2402,8 +2408,10 @@ class NodaliaNavigationBarCard extends HTMLElement {
           display: inline-flex;
           height: calc(${config.styles.media_player.control_size} - 4px);
           justify-content: center;
+          line-height: 0;
           padding: 0;
           flex: 0 0 auto;
+          position: relative;
           width: calc(${config.styles.media_player.control_size} - 4px);
         }
 
@@ -2442,7 +2450,9 @@ class NodaliaNavigationBarCard extends HTMLElement {
         }
 
         .media-player__chip--top {
+          justify-content: center;
           max-width: min(100%, 320px);
+          text-align: center;
         }
 
         .media-player__chip--status {
@@ -2481,6 +2491,8 @@ class NodaliaNavigationBarCard extends HTMLElement {
           height: ${config.styles.media_player.control_size};
           justify-content: center;
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+          line-height: 0;
+          position: relative;
           width: ${config.styles.media_player.control_size};
         }
 
@@ -2493,11 +2505,31 @@ class NodaliaNavigationBarCard extends HTMLElement {
         }
 
         .media-player__control ha-icon {
+          align-items: center;
+          display: inline-flex;
           font-size: 22px;
+          height: 22px;
+          justify-content: center;
+          left: 50%;
+          line-height: 1;
+          position: absolute;
+          top: 50%;
+          transform: translate(-50%, -50%);
+          width: 22px;
         }
 
         .media-player__volume-button ha-icon {
+          align-items: center;
+          display: inline-flex;
           font-size: 20px;
+          height: 20px;
+          justify-content: center;
+          left: 50%;
+          line-height: 1;
+          position: absolute;
+          top: 50%;
+          transform: translate(-50%, -50%);
+          width: 20px;
         }
 
         .media-player__dots {
@@ -2911,6 +2943,10 @@ class NodaliaNavigationBarEditor extends HTMLElement {
         return;
       }
 
+      if (playerField.dataset.playerField === "label") {
+        delete player.name;
+      }
+
       this._applyFieldValue(player, playerField.dataset.playerField, playerField);
       this._commitEditorConfig(nextConfig, shouldEmit);
       return;
@@ -3237,6 +3273,17 @@ class NodaliaNavigationBarEditor extends HTMLElement {
               data-player-field="entity"
               value="${escapeHtml(player.entity || "")}"
               placeholder="media_player.spotify"
+            />
+          </label>
+          <label>
+            <span>Nombre reproductor</span>
+            <input
+              type="text"
+              data-player-index="${index}"
+              data-player-field="label"
+              data-optional="true"
+              value="${escapeHtml(player.label || player.name || "")}"
+              placeholder="HomePod mini Salon"
             />
           </label>
           <label>
